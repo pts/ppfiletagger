@@ -1,0 +1,127 @@
+t       Tag files
+	# Midnight Commander menu for movemetafs
+	# by pts@fazekas.hu at Wed Jan 10 01:26:16 CET 2007
+	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
+	# Imp: better mc menus
+	# Imp: make this a default option
+        # SUXX: prompt questions may not contain macros
+        # SUXX: no way to signal an error
+        export PWD
+	perl -w <<''
+	$ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
+	use integer; use strict;  $|=1;
+	my $AS=join("",<DATA>);
+	my @args=map { s@\\(.)@$1@gs; s@\A[.]/(?=-)@@;
+	  $_ } $AS=~m@((?:[^\\ \t\n\r]+|\\.)+)@sg;
+	require "syscall.ph"; my $SYS_setxattr=&SYS_setxattr;
+	my($dir,$tags)=splice(@args,0,2);
+	# vvv Dat: menu item is not run on a very empty string
+	if ($tags!~/\S/) { print "no tags specified ($tags)\n"; exit }
+	print "\n\nto these files:\n";
+	$dir=~s@//+@/@g; $dir=~s@/\Z(?!\n)@@; $dir.='/';
+	my $mmfsdir="$ENV{HOME}/mmfs/";
+	my $mmdir="${mmfsdir}root/";
+	# vvv Dat: don't prepend $mmdir for "$ENV{HOME}/mmfs/search/z/foo.txt"
+	my $prefix=(substr($dir,0,length$mmfsdir)eq$mmfsdir) ? $dir :
+	  "$mmdir$dir"; # Dat: indicate double `/' in `.../mmfs/root//'
+	my $C=0;
+	my $EC=0;
+	for my $fn (@args) {
+	  print "  $prefix$fn\n";
+	  # vvv Imp: move, not setfattr
+	  my $key="user.mmfs.tags.modify"; # Dat: must be in $var
+	  my $got=syscall($SYS_setxattr, $prefix.$fn, $key, $tags,
+	    length($tags), 0);
+	  if (!defined $got or $got<0) {
+	    if ("$!" eq "Cannot assign requested address") {
+	      print "\007bad tags ($tags), skipping other files\n"; exit
+	    } else { print "    error: $!\n"; $EC++ }
+	  } else { $C++ }
+	}
+	print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
+	print "modified tags of $C file@{[$C==1?q():q(s)]}: $tags\n";
+	__DATA__
+         %d %{What tags to add or -remove}
+	 %s
+	
+	echo -n 'Press <Enter> to return to mc.'; read
+
+s       Show tags
+	# Midnight Commander menu for movemetafs
+	# by pts@fazekas.hu at Wed Jan 10 01:26:16 CET 2007
+	# Imp: show description
+	# Imp: group files by tags they have
+        export PWD
+	perl -w <<''
+	$ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
+	use integer; use strict;  $|=1;
+	my $AS=join("",<DATA>);
+	my @args=map { s@\\(.)@$1@gs; s@\A[.]/(?=-)@@;
+	  $_ } $AS=~m@((?:[^\\ \t\n\r]+|\\.)+)@sg;
+	require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
+	my($dir)=splice(@args,0,1);
+	print "\n\nto these files:\n";
+	$dir=~s@//+@/@g; $dir=~s@/\Z(?!\n)@@; $dir.='/';
+	my $mmfsdir="$ENV{HOME}/mmfs/";
+	my $mmdir="${mmfsdir}root/";
+	# vvv Dat: don't prepend $mmdir for "$ENV{HOME}/mmfs/search/z/foo.txt"
+	my $prefix=(substr($dir,0,length$mmfsdir)eq$mmfsdir) ? $dir :
+	  "$mmdir$dir"; # Dat: indicate double `/' in `.../mmfs/root//'
+	my $C=0; my $EC=0; my $HC=0;
+	for my $fn (@args) {
+	  print "  $prefix$fn\n";
+	  my $key="user.mmfs.tags"; # Dat: must be in $var
+	  my $tags="\0"x65535;
+	  my $got=syscall($SYS_getxattr, $prefix.$fn, $key, $tags,
+	    length($tags), 0);
+	  if (!defined $got or $got<0) {
+	    print "    error: $!\n"; $EC++
+	  } else {
+	    $tags=~s@\0.*@@s;
+	    if ($tags ne"") { $HC++ } else { $tags=":none" }
+	    print "    $tags\n";  $C++;
+	  }
+	}
+	print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
+	print "shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
+	__DATA__
+         %d %s
+	
+	echo -n 'Press <Enter> to return to mc.'; read
+
+-       Fix principal on movemetafs
+	# Midnight Commander menu for movemetafs
+	# by pts@fazekas.hu at Wed Jan 10 01:26:16 CET 2007
+	# Imp: show description
+	# Imp: group files by tags they have
+	# Dat: `error: Operation not permitted' on ~/mmfs/search/...
+        export PWD
+	perl -w <<''
+	$ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
+	use integer; use strict;  $|=1;
+	my $AS=join("",<DATA>);
+	my @args=map { s@\\(.)@$1@gs; s@\A[.]/(?=-)@@;
+	  $_ } $AS=~m@((?:[^\\ \t\n\r]+|\\.)+)@sg;
+	require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
+	my($dir)=splice(@args,0,1);
+	print "\n\nto these files:\n";
+	$dir=~s@//+@/@g; $dir=~s@/\Z(?!\n)@@; $dir.='/';
+	my $mmfsdir="$ENV{HOME}/mmfs/";
+	my $mmdir="${mmfsdir}root/";
+	# vvv Dat: don't prepend $mmdir for "$ENV{HOME}/mmfs/search/z/foo.txt"
+	my $prefix=(substr($dir,0,length$mmfsdir)eq$mmfsdir) ? $dir :
+	  "$mmdir$dir"; # Dat: indicate double `/' in `.../mmfs/root//'
+	my $C=0; my $EC=0; my $HC=0;
+	for my $fn (@args) {
+	  print "  $prefix$fn\n";
+	  if (!rename($prefix.$fn,$mmfsdir."adm/fixprincipal/:any")) {
+	    print "    error: $!\n"; $EC++
+          } else { $C++ }
+	}
+	print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
+	print "fixed principal of $HC of $C file@{[$C==1?q():q(s)]}\n";
+	__DATA__
+         %d %s
+	
+	echo -n 'Press <Enter> to return to mc.'; read
+

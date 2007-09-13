@@ -5,7 +5,6 @@
 
 #** @example _mmfs_tag 'tag1 tag2 ...' file1 file2 ...
 function _mmfs_tag() {
-	# Midnight Commander menu for movemetafs
 	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
 	# Imp: better mc menus
 	# Imp: make this a default option
@@ -21,12 +20,13 @@ $tags="" if !defined $tags;
 # vvv Dat: menu item is not run on a very empty string
 if ($tags!~/\S/) { print STDERR "no tags specified ($tags)\n"; exit 2 }
 print "to these files:\n";
-my $mmdir="$ENV{HOME}/mmfs/root/";
+my $mmfsdir="$ENV{HOME}/mmfs/";
+my $mmdir="${mmfsdir}root/";
 my $C=0;
 my $EC=0;
 for my $fn0 (@ARGV) {
   my $fn=Cwd::abs_path($fn0);
-  substr($fn,0,0)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
+  substr($fn,0,0)=$mmdir if substr($fn,0,length$mmfsdir)ne$mmfsdir;
   print "  $fn\n";
   # vvv Imp: move, not setfattr
   my $key="user.mmfs.tags.modify"; # Dat: must be in $var
@@ -45,7 +45,6 @@ END
 
 #** @example _mmfs_show file1 file2 ...
 function _mmfs_show() {
-	# Midnight Commander menu for movemetafs
 	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
 	# Imp: better mc menus
 	# Imp: make this a default option
@@ -57,11 +56,12 @@ $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
 print "to these files:\n";
-my $mmdir="$ENV{HOME}/mmfs/root/";
+my $mmfsdir="$ENV{HOME}/mmfs/";
+my $mmdir="${mmfsdir}root/";
 my $C=0;  my $EC=0;  my $HC=0;
 for my $fn0 (@ARGV) {
-  my $fn=Cwd::abs_path($fn0);
-  substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
+  my $fn=Cwd::abs_path($fn0); # Dat: resolves symlinks (e.g. in ~/mmfs/search/foo/)
+  substr($fn,0,1)=$mmdir if substr($fn,0,length$mmfsdir)ne$mmfsdir;
   print "  $fn\n";
   # vvv Imp: move, not setfattr
   my $key="user.mmfs.tags"; # Dat: must be in $var
@@ -97,13 +97,14 @@ while ($spec=~/-(\S+)|[+]?(\S+)/g) { # Imp: more strict in syntax
   elsif (defined $2) { $needplus{$2}=1 }
 }
 die "_mmfs_grep: empty spec\n" if !%needplus and !%needminus;
-my $mmdir="$ENV{HOME}/mmfs/root/";
+my $mmfsdir="$ENV{HOME}/mmfs/";
+my $mmdir="${mmfsdir}root/";
 my $C=0;  my $EC=0;  my $HC=0;
 my $fn0;
 while (defined($fn0=<STDIN>)) {
   chomp $fn0;
   my $fn=Cwd::abs_path($fn0);
-  substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
+  substr($fn,0,1)=$mmdir if substr($fn,0,length$mmfsdir)ne$mmfsdir;
   #print "  $fn\n";
   # vvv Imp: move, not setfattr
   my $key="user.mmfs.tags"; # Dat: must be in $var
@@ -127,13 +128,12 @@ while (defined($fn0=<STDIN>)) {
   }
 }
 print STDERR "warning: had error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
-' "$@"
+' -- "$@"
 }
 
 #** @example _mmfs_dump [--printfn=...] file1 file2 ...
 #** @example _copyattr() { _mmfs_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne 'print if s@^rm -f @_copyattr @ and s@ #, keep @ @' >_d.sh; source _d.sh | sh
 function _mmfs_dump() {
-	# Midnight Commander menu for movemetafs
 	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
 	# Imp: better mc menus
 	# Imp: make this a default option
@@ -155,15 +155,16 @@ if (@ARGV and $ARGV[0]=~/\A--printfn=(.*)/s) { $printfn=$1; shift @ARGV }
 if (@ARGV and $ARGV[0] eq '--') { shift @ARGV }
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
 #print "to these files:\n";
-my $mmdir="$ENV{HOME}/mmfs/root/";
+my $mmfsdir="$ENV{HOME}/mmfs/";
+my $mmdir="${mmfsdir}root/";
 my $C=0;  my $EC=0;  my $HC=0;
 if (defined $printfn) {
   $printfn=Cwd::abs_path($printfn);
-  substr($printfn,0,1)=$mmdir if substr($printfn,0,length$mmdir)ne$mmdir;
+  substr($printfn,0,1)=$mmdir if substr($printfn,0,length$mmfsdir)ne$mmfsdir;
 }
 for my $fn0 (@ARGV) {
   my $fn=Cwd::abs_path($fn0);
-  substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
+  substr($fn,0,1)=$mmdir if substr($fn,0,length$mmfsdir)ne$mmfsdir;
   #print "  $fn\n";
   # vvv Imp: move, not setfattr
   my $key="user.mmfs.tags"; # Dat: must be in $var
@@ -190,7 +191,6 @@ END
 
 #** @example _mmfs_fixprincipal file1 file2 ...
 function _mmfs_fixprincipal() {
-	# Midnight Commander menu for movemetafs
 	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
 	# Imp: better mc menus
 	# Imp: make this a default option
@@ -202,15 +202,15 @@ $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
 print "to these files:\n";
-my $mmdir0="$ENV{HOME}/mmfs/";
-my $mmdir="${mmdir0}root/";
+my $mmfsdir="$ENV{HOME}/mmfs/";
+my $mmdir="${mmfsdir}root/";
 my $C=0;  my $EC=0;  my $HC=0;
 for my $fn0 (@ARGV) {
   my $fn=Cwd::abs_path($fn0);
-  substr($fn,0,0)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
+  substr($fn,0,0)=$mmdir if substr($fn,0,length$mmfsdir)ne$mmfsdir;
   print "  $fn\n";
   # vvv Imp: move, not setfattr
-  if (!rename($fn,$mmdir0."adm/fixprincipal/:any")) {
+  if (!rename($fn,$mmfsdir."adm/fixprincipal/:any")) {
     print "    error: $!\n"; $EC++
   } else { $C++ }
 }
