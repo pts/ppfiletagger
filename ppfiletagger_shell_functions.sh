@@ -81,7 +81,10 @@ print "shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n"
 END
 }
 
-#** @example ls | _mmfs_grep '+foo -bar'
+#** @example ls | _mmfs_grep '+foo -bar baz'  # anything with foo and baz, but without bar
+#** @example ls | _mmfs_grep '* -2004'        # anything with at least one tag, but without 2004
+#** @example ls | _mmfs_grep '*-foo *-bar'    # anything with at least one tag, which is not foo or bar
+#** @example ls | _mmfs_grep '-*'             # anything without tags
 function _mmfs_grep() {
 	perl -w -e '
 use Cwd;
@@ -91,10 +94,18 @@ require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
 die "_mmfs_grep: grep spec expected\n" if 1!=@ARGV;
 my %needplus;
 my %needminus;
+my %ignore;
 my $spec=$ARGV[0];
-while ($spec=~/-(\S+)|[+]?(\S+)/g) { # Imp: more strict in syntax
-  if (defined $1) { $needminus{$1}=1 }
-  elsif (defined $2) { $needplus{$2}=1 }
+while ($spec=~/(\S+)/g) {
+  my $word = $1;
+  if ($word =~ s@^-@@) {
+    $needminus{$word} = 1;
+  } elsif ($word =~ s@^[*]-@@) {
+    $ignore{$word} = 1;
+    $needplus{"*"} = 1;
+  } else {
+    $needplus{$word} = 1;
+  }
 }
 die "_mmfs_grep: empty spec\n" if !%needplus and !%needminus;
 my $mmdir="$ENV{HOME}/mmfs/root/";
@@ -117,11 +128,14 @@ while (defined($fn0=<STDIN>)) {
     my $ok_p=1;
     my %N=%needplus;
     #print "($tags)\n";
+    my $tagc=0;
     while ($tags=~/(\S+)/g) {
       my $tag=$1;
+      $tagc++ if !$ignore{$tag};
       delete $N{$tag};
-      if ($needminus{$tag}) { $ok_p=0; last }
+      if ($needminus{$tag} or $needminus{"*"}) { $ok_p=0; last }
     }
+    delete $N{"*"} if $tagc>0;
     $ok_p=0 if %N;
     print "$fn0\n" if $ok_p;
   }
