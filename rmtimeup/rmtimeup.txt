@@ -48,6 +48,16 @@ To compile and load rmtimeup, run these commands:
   $ make
   $ sudo insmod ./rmtimeup.ko 
 
+If `make' gives you error messages like
+
+  warning: initialization from incomatible pointer type
+
+(such as with the Ubuntu Hardy 2.6.24-22-generic kernel), try this:
+
+  $ USE_EXTRA_VFSMNT=1 make
+
+TODO: describe hooks, remove documentation references about security
+
 TODO: how to install permanently
 
 What to do if the kernel module cannot be loaded
@@ -67,6 +77,7 @@ Here are some good and bad entries from a kernel boot log (dmesg):
   bad: SELinux:  Initializing.
 * good (flag capability.disable=1): Capabilities disabled at initialization
   bad: Capability LSM initialized
+* bad (as in Ubuntu Hardy 8.04.1): AppArmor: AppArmor initialized
 
 Copyright
 ~~~~~~~~~

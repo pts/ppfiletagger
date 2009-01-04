@@ -70,6 +70,14 @@ MODULE_LICENSE("GPL");
 
 #ifdef COMPILING
 
+#if USE_EXTRA_VFSMNT
+#  define VFSMNT_TARG(name) , struct vfsmount *name
+#  define VFSMNT_ARG(name) , name
+#else
+#  define VFSMNT_TARG(name)
+#  define VFSMNT_ARG(name)
+#endif
+
 /**** pts ****/
 #undef  SUPPORT_UPDATEDB_ARG
 #define SUPPORT_UPDATEDB_ARG 0
@@ -360,8 +368,8 @@ int disasm_safe_size(char *pc, int min) {
       /* !! not always */
     } else if ((0 == strncmp(dins, "mov ", 4) ||
                 0 == strncmp(dins, "sub ", 4) ||
-                0 == strncmp(dins, "add ", 4)) &&
-               0 != strncmp(dins + 4, "[esp", 4)) {
+                0 == strncmp(dins, "add ", 4))
+               /* && 0 != strncmp(dins + 4, "[esp", 4) */) {
     } else {
       printk(KERN_INFO "unsafe assembly instruction\n");
       return -EILSEQ;
@@ -484,32 +492,34 @@ static int set_hook(char *orig_function, char *replacement_function,
 /* --- */
 
 DEFINE_ANCHOR(vfs_rename,
-              struct inode *old_dir, struct dentry *old_dentry,
-              struct inode *new_dir, struct dentry *new_dentry) {
+              struct inode *old_dir, struct dentry *old_dentry VFSMNT_TARG(old_mnt),
+              struct inode *new_dir, struct dentry *new_dentry VFSMNT_TARG(new_mnt)) {
   int prevret;
   printk(KERN_INFO "my vfs_rename called\n");
   prevret = vfs_rename__anchor.prev(
-      old_dir, old_dentry, new_dir, new_dentry);
+      old_dir, old_dentry VFSMNT_ARG(old_mnt), new_dir, new_dentry VFSMNT_ARG(new_mnt));
   printk(KERN_INFO "my vfs_rename prevret=%d\n", prevret);
   return prevret;  
 }
 
 DEFINE_ANCHOR(vfs_link,
-              struct dentry *old_dentry, struct inode *dir,
-              struct dentry *new_dentry) {
+              struct dentry *old_dentry VFSMNT_TARG(old_mnt),
+              struct inode *dir,
+              struct dentry *new_dentry VFSMNT_TARG(new_mnt)) {
   int prevret;
   printk(KERN_INFO "my vfs_link called\n");
   prevret = vfs_link__anchor.prev(
-      old_dentry, dir, new_dentry);
+      old_dentry VFSMNT_ARG(old_mnt), dir, new_dentry VFSMNT_ARG(new_mnt));
   printk(KERN_INFO "my vfs_link prevret=%d\n", prevret);
   return prevret;  
 }
 
 DEFINE_ANCHOR(vfs_unlink,
-              struct inode *dir, struct dentry *dentry) {
+              struct inode *dir,
+              struct dentry *dentry VFSMNT_TARG(mnt)) {
   int prevret;
   printk(KERN_INFO "my vfs_unlink called\n");
-  prevret = vfs_unlink__anchor.prev(dir, dentry);
+  prevret = vfs_unlink__anchor.prev(dir, dentry VFSMNT_ARG(mnt));
   printk(KERN_INFO "my vfs_unlink prevret=%d\n", prevret);
   return prevret;
 }

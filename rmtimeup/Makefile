@@ -13,9 +13,14 @@ PRODUCT = rfsdelta-$(VERSION)
 
 .PHONY: all clean install modules_install
 
+# Can be overridden in the command line:
+# `USE_EXTRA_VFSMNT=1 make'. This is needed for the Ubuntu Hardy
+# 2.6.24-22-generic kernel.
+USE_EXTRA_VFSMNT ?= 0
+
 # vvv Dat: used by kbuild ($RMTIMEUP_EXTRA_CFLAGS isn't)
 # vvv Dat: -Werror is to catch function prototype mismatches (e.g. vfs_rename)
-EXTRA_CFLAGS=-Werror -DUSE_PTS=1 -DUSE_PTS_LINUXKERNEL=1 -DRMTIMEUP_VERSION=\"$(RMTIMEUP_VERSION)\"
+EXTRA_CFLAGS=-DUSE_EXTRA_VFSMNT=$(USE_EXTRA_VFSMNT) -Werror -DUSE_PTS=1 -DUSE_PTS_LINUXKERNEL=1 -DRMTIMEUP_VERSION=\"$(RMTIMEUP_VERSION)\"
 #"
 
 # vvv Dat: `-m' is for module
