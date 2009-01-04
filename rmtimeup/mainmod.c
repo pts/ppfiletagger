@@ -61,15 +61,6 @@ MODULE_AUTHOR("Peter Szabo");
 MODULE_DESCRIPTION("rmtimeup "RMTIMEUP_VERSION" recursive filesystem change notify");
 MODULE_LICENSE("GPL");
 
-#define COMPILING 1
-#ifdef CONFIG_SECURITY
-#else
-#  error please enable CONFIG_SECURITY
-#  undef COMPILING
-#endif
-
-#ifdef COMPILING
-
 #if USE_EXTRA_VFSMNT
 #  define VFSMNT_TARG(name) , struct vfsmount *name
 #  define VFSMNT_ARG(name) , name
@@ -291,7 +282,7 @@ RETURN_WRAP(static, int, rmtimeup_inode_rename,
       old_dir, old_dentry, new_dir, new_dentry);
   if (new_dentry->d_inode) return 0;
   /* ^^^ Dat: usually we get an `aX' for new_dentry, inode is not
-   *     available yet (for CONFIG_SECURITY handlers)
+   *     available yet
    */
   assert(old_dentry->d_sb == new_dentry->d_sb);  /* on same filesystem */
   if (!has_dentry_tagdb(new_dentry->d_sb,
@@ -604,5 +595,3 @@ static void __exit exit_rmtimeup(void) {
 
 module_init(init_rmtimeup);
 module_exit(exit_rmtimeup);
-
-#endif /* COMPILING */

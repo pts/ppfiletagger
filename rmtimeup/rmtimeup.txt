@@ -2,8 +2,8 @@ README for rmtimeup
 """""""""""""""""""
 rmtimeup is a Linux i386 (x86) 32-bit kernel module which updates the
 mtime of all ancestor directories for all interesting file operations:
-rename, unlink, link, setxattr on files. To do this, it registers itself
-as a security handler (LSM -- Linux security module). rmtimeup can be used
+rename, unlink, link, setxattr on files. To do this, it hooks some kernel
+functions (e.g. vfs_rename, vfs_link). rmtimeup can be used
 as a component of a local filesystem indexing framework (similar to Beagle,
 rlocate and movemetafs).
 
@@ -17,15 +17,6 @@ rmtimeup needs:
   Other architectures, including 64-bit (x86-64, amd64, ia64) are not
   supported. uname -a should print Linux, 2.6.*, i[3456]86, but not x86_64.
 * Kernel loadable module support (LKM, CONFIG_MODULES=y).
-* Security modules support (CONFIG_SECURITY=y). Most distribution stock kernels
-  nowadays (such as Etch, Hardy) have this.
-* No other active security modules, i.e. no capability, selinux, apparmor or
-  grsecurity. See section `What to do if the kernel module cannot be loaded'
-  about disabling those. Please note that rmtimeup doesn't support security
-  module stacking when rmtimeup is loaded first. If your security subsystem
-  supports stacking (capability doesn't), rmtimeup won't work either. If you
-  really need that, it may be possible with some custom software
-  development and a kernel patch.
 
 What could be done with a kernel patch
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -33,8 +24,6 @@ It would be possible to prepare a kernel patch, which would relax the
 system requirements:
 
 * Any architecture instead of 32-bit i386.
-* Cooperation with other security modules using security module stacking in
-  either direction.
 * No disassembler.
 
 Please contact me if you really need that kernel patch (I haven't written it
@@ -44,6 +33,7 @@ How to compile and load
 ~~~~~~~~~~~~~~~~~~~~~~~
 To compile and load rmtimeup, run these commands:
 
+  $ sudo apt-get install gcc make linux-kernel-headers
   $ ls -l rmtimeup.txt mainmod.c ud.c
   $ make
   $ sudo insmod ./rmtimeup.ko 
@@ -56,28 +46,10 @@ If `make' gives you error messages like
 
   $ USE_EXTRA_VFSMNT=1 make
 
-TODO: describe hooks, remove documentation references about security
+Please not that Makefile has auto-detection for USE_EXTRA_VFSMNT built in
+so this should no longer be an issue.
 
 TODO: how to install permanently
-
-What to do if the kernel module cannot be loaded
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-If you cannot load rmtimeup.ko because you get `rmtimeup: Another security
-module is active.' in the kernel log (dmesg, /var/log/syslog), the reason
-might be that another security handler is active (most probably one of
-capability, selinux or apparmor). To disable a security handler, you must
-unload it (with rmmod), or disable it using a Linux boot flag (in GRUB or
-LILO, see also /proc/cmdline).
-
-Here are some good and bad entries from a kernel boot log (dmesg):
-
-* good: Security Framework v1.0.0 initialized
-  good: Security Scaffold v1.0.0 initialized
-* good (flag selinux=0): SELinux:  Disabled at boot.
-  bad: SELinux:  Initializing.
-* good (flag capability.disable=1): Capabilities disabled at initialization
-  bad: Capability LSM initialized
-* bad (as in Ubuntu Hardy 8.04.1): AppArmor: AppArmor initialized
 
 Copyright
 ~~~~~~~~~
