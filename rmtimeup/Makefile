@@ -14,7 +14,8 @@ PRODUCT = rfsdelta-$(VERSION)
 .PHONY: all clean install modules_install
 
 # vvv Dat: used by kbuild ($RMTIMEUP_EXTRA_CFLAGS isn't)
-EXTRA_CFLAGS=-DUSE_PTS=1 -DUSE_PTS_LINUXKERNEL=1 -DRMTIMEUP_VERSION=\"$(RMTIMEUP_VERSION)\"
+# vvv Dat: -Werror is to catch function prototype mismatches (e.g. vfs_rename)
+EXTRA_CFLAGS=-Werror -DUSE_PTS=1 -DUSE_PTS_LINUXKERNEL=1 -DRMTIMEUP_VERSION=\"$(RMTIMEUP_VERSION)\"
 #"
 
 # vvv Dat: `-m' is for module

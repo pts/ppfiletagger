@@ -5,8 +5,8 @@
  *
  * rmtimeup is a Linux i386 (x86) 32-bit kernel module which updates the
  * mtime of all ancestor directories for all interesting file operations:
- * rename, unlink, link, setxattr on files. To do this, it registers itself
- * as a security handler (LSM -- Linux security module). rmtimeup can be used
+ * rename, unlink, link, setxattr on files. To do this, it hooks some kernel
+ * functions (e.g. vfs_rename, vfs_link). rmtimeup can be used
  * as a component of a local filesystem indexing framework (similar to Beagle,
  * rlocate and movemetafs). See rmtimeup.txt for more details.
  *
@@ -40,6 +40,7 @@
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/fs.h>
+#include <linux/xattr.h>
 #include <linux/string.h>
 #include <linux/slab.h>
 #include <linux/list.h>
@@ -48,7 +49,6 @@
 #include <linux/proc_fs.h>
 #include <linux/moduleparam.h>
 
-#include <linux/security.h>
 #include <linux/init.h>
 #include <linux/rwsem.h>
 #include <linux/spinlock.h>
@@ -96,465 +96,6 @@ int debug;
 module_param_named(debug, debug, int, 0);
 MODULE_PARM_DESC(debug, "print KERN_DEBUG messages");
 
-/* --- fake_entry */
-
-/** origret is the original return value of the caller */
-typedef int (*fakecallback_t)(int origret,
-    void *ptr0, void *ptr1, void *ptr2, void *ptr3, void *ptr4);
-
-/** A struct containing (Imp: ...), and also an
- * executable machine code which calls wrapped_cont.
- *
- * See also assert(sizeof(struct fake_entry) ...);
- */
-struct fake_entry {
-  /** Instruction pointer in .text where caller of caller continues. */
-  char *grandcallercont;
-  /** Callback function to be called when caller returns (just before grandcallercont) */
-  fakecallback_t fakecallback;
-  /** Where to put fake_trampoline/fakecallback on the stack: the difference
-   * in disassembly: esp - esp0.
-   */
-  long espdiff;
-  /** Instruction pointer in .text where caller continues. */
-  char *callercont;
-};
-
-struct fake_entry fes[200];
-unsigned fesi = 0, fesc = 0;
-/* Imp: use a read-write lock */
-spinlock_t fes_lock;
-
-static struct fake_entry *find_fake_entry(
-    fakecallback_t fakecallback, char *callercont) {
-  /* TODO: try to do this with a 200-element linked list */
-  struct fake_entry *fe = NULL;
-  unsigned i;
-  for (i = 0; i < fesc; ++i) {
-    fe = fes + i;
-    if (fe->callercont == callercont && fe->fakecallback == fakecallback) return fe;
-  }
-  return NULL;
-}
-
-static struct fake_entry *add_fake_entry(
-    char *grandcallercont, fakecallback_t fakecallback,
-    long espdiff, char *callercont) {
-  struct fake_entry *fe = NULL;
-  unsigned i;
-  unsigned long irq_flags;
-  for (i = 0; i < fesc; ++i) {
-    fe = fes + i;
-    if (fe->callercont == callercont && fe->fakecallback == fakecallback) {
-      assert(fe->grandcallercont == grandcallercont);
-      assert(fe->espdiff == espdiff);
-      break;
-    }
-  }
-  printk(KERN_INFO "i=%d fesc=%d\n", i, fesc);
-  if (i == fesc) {  /* not found */
-    spin_lock_irqsave(&fes_lock, irq_flags);
-    fe = fes + fesi;
-    ++fesi;
-    if ((char*)fes + sizeof(fes) == (char*)(fes + fesi)) {  /* end of table */
-      fesi = 0;
-    } else if (fesi > fesc) {
-      ++fesc;
-    }
-    /* Imp: what if we're just ruining someone else's linear search above? */
-    fe->grandcallercont = grandcallercont;
-    fe->fakecallback = fakecallback;
-    fe->espdiff = espdiff;
-    fe->callercont = callercont;
-    spin_unlock_irqrestore(&fes_lock, irq_flags);
-  }
-  /* TODO: unlock */
-  return fe;
-}
-
-static void init_fes(void) {
-  spin_lock_init(&fes_lock);
-  fesi = fesc = 0;
-}
-
-/* --- origarg_entry */
-
-struct origarg_entry {
-  struct list_head list;
-  void *key;  /* be last so it is moved last in delete_origarg_entry */
-  void *ptr0, *ptr1, *ptr2, *ptr3, *ptr4;
-  /** Instruction pointer in .text where caller of caller continues. */
-  char *grandcallercont;
-  fakecallback_t fakecallback;
-};
-
-struct list_head origarg_entry_list;  /* Imp: move this to shared */
-spinlock_t oes_lock;
-
-/** Also calls kfree(oe) */
-static void delete_origarg_entry(struct origarg_entry *oe) {
-  unsigned irq_flags;
-  assert(oe);
-  if (oe) {
-    assert(oe->key != NULL);
-    spin_lock_irqsave(&oes_lock, irq_flags);
-    oe->key = NULL;
-    list_del(&oe->list);
-    kfree(oe);
-    spin_unlock_irqrestore(&oes_lock, irq_flags);
-  }
-}
-
-/** Returns NULL on out of memory (-ENOMEM) */
-static struct origarg_entry *add_origarg_entry(
-    void *key, void *ptr0, void *ptr1, void *ptr2, void *ptr3, void *ptr4,
-    char *grandcallercont, fakecallback_t fakecallback) {
-  struct list_head *pos;
-  struct origarg_entry *oe = NULL;
-  unsigned irq_flags;
-  assert(key != NULL);
-  spin_lock_irqsave(&oes_lock, irq_flags);
-  list_for_each(pos, &origarg_entry_list) {
-    oe = (struct origarg_entry*)pos; /* list_entry(pos, struct origarg_entry, list) */
-    if (oe->key == key) break;
-    oe = NULL;
-  }
-  printk(KERN_INFO "add_origarg_entry key=%p oe=%p\n", key, oe);
-  if (oe == NULL) {  /* not found */
-    if (NULL == (oe = kmalloc(sizeof*oe, GFP_KERNEL))) goto unlock;
-  }
-  list_add(&oe->list, &origarg_entry_list);  /* beginning */
-  oe->key = key;
-  oe->ptr0 = ptr0;
-  oe->ptr1 = ptr1;
-  oe->ptr2 = ptr2;
-  oe->ptr3 = ptr3;
-  oe->ptr4 = ptr4;
-  oe->grandcallercont = grandcallercont;
-  oe->fakecallback = fakecallback;
- unlock:
-  spin_unlock_irqrestore(&oes_lock, irq_flags);
-  return oe;
-}
-
-static struct origarg_entry *find_origarg_entry(void *key) {
-  struct list_head *pos;
-  struct origarg_entry *oe;
-  assert(key != NULL);
-  list_for_each(pos, &origarg_entry_list) {
-    oe = (struct origarg_entry*)pos; /* list_entry(pos, struct origarg_entry, list) */
-    if (oe->key == key) return oe;
-  }
-  return NULL;
-}
-
-static void init_oes(void) {
-  spin_lock_init(&oes_lock);
-  INIT_LIST_HEAD(&origarg_entry_list);
-}
-
-/* --- RETURN_WRAP support */
-
-/** Define return-wrapped function named function_name returning return_type
- * (almost always int), having storage class storage (e.g. static) and
- * arguments `...'.
- *
- * A return-wrapped can register a callback which will be called when the
- * caller of the return-wrapped function returns. This only works for the call
- * pattern if (return_wrapped(...)) { ... } in the caller. The callback must
- * be of type fakecallback_t.
- *
- * This mechanism works only on i386 and gcc -mregparm=3.
- *
- * Example:
- *
- *   static int mycallback(int origret,
- *         void *ptr0, void *ptr1, void *ptr2, void *ptr3, void *ptr4) {
- *     printk(KERN_INFO "mycallback origret=%d ptr0=%p", origret, ptr0);
- *     return origret;
- *   }
- *
- *   static int myfunction(int a, int b);  // optional declaration
- *
- *   RETURN_WRAP(static, int, myfunction, int a, int b) {
- *     printk(KERN_INFO "myfunction a=0x%x b=0x%x", a, b);
- *     if (a < 0) return -EINVAL;
- *     RETURN_WITH_CALLBACK_REGISTER((void*)a, (void*)b, 0, 0, mycallback);
- *   }
- *  
- */
-#define RETURN_WRAP(storage, return_type, function_name, ...) \
-    static return_type function_name##__pre( \
-        char *ebp, char *esp0, char *eip, char *cont, __VA_ARGS__); \
-    /* This trampoline works with gcc -mregparm=3 (Linux kernel fastcall) */ \
-    static struct { char pre[30]; char *wrapped; char post[1]; } \
-    __attribute__ ((packed)) \
-    function_name##__trdata __attribute__((section("text"))) = { \
-      /* (eax = ptr0) (edx = ptr1) (ecx = ptr2) (cont @ esp0 - 4) (ptr3) */ \
-      /*00000000*/ "\x87\x0C\x24" /* xchg ecx,[esp] */ \
-      /*00000003*/ "\x52" /* push edx */ \
-      /*00000004*/ "\x50" /* push eax */ \
-      /*00000005*/ "\x51" /* push ecx */ \
-      /*00000006*/ "\x89\xE8" /* mov eax,ebp */ \
-      /*00000008*/ "\x8D\x54\x24\x10" /* lea edx,[esp+0x10]  ; esp after return of trampoline */ \
-      /* (eax = ebp0) (edx = esp0) (ecx = [esp0]) (cont.trampoline) (cont) (ptr0) (ptr1) (ptr2) (ptr3) */ \
-      /*0000000C*/ "\xE8\x0C\x00\x00\x00" /* call 0x1d */ \
-      /* (eax = retval) (cont) (ptr0) (ptr1) (ptr2) (ptr3) */ \
-      /*00000011*/ "\x89\x44\x24\x08" /* mov [esp+0x8],eax  ; save retval */ \
-      /*00000015*/ "\x58" /* pop eax */ \
-      /* (eax = cont) (ptr0) (retval) (ptr2) (ptr3) */ \
-      /*00000016*/ "\x89\x44\x24\x08" /* mov [esp+0x8],eax  ; save cont */ \
-      /*0000001A*/ "\x58" /* pop eax */ \
-      /* (retval) (cont) (ptr3) */ \
-      /*0000001B*/ "\x58" /* pop eax  ; retval */ \
-      /*0000001C*/ "\xC3" /* ret */ \
-      /*0000001D*/ "\x68", /* push dword 0x12345678 */ \
-      (char*)&(function_name##__pre),  /* we need this because we cannot be suore of -fno-toplevel-reorder */ \
-      "\xC3"  /* ret */ \
-    }; \
-    storage return_type function_name(__VA_ARGS__) \
-        __attribute__((alias(#function_name "__trdata"))); \
-    static return_type function_name##__pre( \
-        char *wrap__ebp, char *wrap__esp0, char *wrap__eip, \
-        char *cont __attribute__((unused)), \
-        __VA_ARGS__)
-
-/** See thedocumentation of RETURN_WRAP. */
-#define RETURN_WITH_CALLBACK_REGISTER(ptr0, ptr1, ptr2, ptr3, ptr4, fakecallback) \
-  do { return register_callback_on_caller_return( \
-      ptr0, ptr1, ptr2, ptr3, ptr4, fakecallback, \
-      wrap__ebp, wrap__esp0, wrap__eip); } while(0)
-
-static int fake_trampoline(int origret, char *dummy_edx, char *dummy_ecx, char *dummy_stackarg) {
-  struct origarg_entry *oe, oecp;
-  asm("sub $0x4, %esp");  /* make place for the return address (will be set to oe->grandcallercont) */
-  asm("mov %eax, (%esp)");  /* !! Imp: get rid of this; there is a mov %eax, (%esp) autogenerated above our sub */
-  /* origret contains eax because of fastcall calling convention */
-  oe = find_origarg_entry(/*esp:*/(char*)((&dummy_stackarg)-1));
-  assert(oe && "origarg_entry not found for fake_trampoline");
-  printk(KERN_INFO "FAKE origret=%d esp=%lx oe=%lx\n",
-      origret, (long)(char*)((&dummy_stackarg)-1), (long)oe);
-  assert(__builtin_return_address(0) == (&dummy_stackarg)[-1]);
-  (&dummy_stackarg)[-1] = oe->grandcallercont;  /* override return address */
-  oecp = *oe;
-  delete_origarg_entry(oe);
-#if 0
-  asm("push $0x22222222");  /* a push dword instruction */
-  asm("push $-5");  /* a push byte instruction */
-  asm("pop %eax");
-  asm("pop %eax");
-#endif
-  return oecp.fakecallback(origret,
-      oecp.ptr0, oecp.ptr1, oecp.ptr2, oecp.ptr3, oecp.ptr4);
-}
-
-/** @return 0 or -ENOMEM etc. */
-static int register_callback_on_caller_return(
-    void *ptr0, void *ptr1, void *ptr2, void *ptr3, void *ptr4,
-    fakecallback_t fakecallback,
-    char *ebp, char *esp0, char *eip) {
-  /* Imp: add x86-64 (amd64) support */
-  /* Imp: uint64_t for pointer to integer conversion (instead of long) */
-  unsigned left0 = 100, left, checkleft, framesleft = 2;
-  struct fake_entry *fe;
-  long delta;  /* we assume: sizeof(long) >= sizeof(char*) */
-  int consumed, got;
-  int checkstate;
-  char *eip_frame;
-  char *esp = esp0;
-  /** Disassembled instruction */
-  char *dins;
-  char *dinsend;
-  ud_t ud_obj;
-
-  printk(KERN_INFO "reg_callerret ebp=%lx esp0=%lx eip=%lx fakecallback=%p\n",
-      (long)ebp, (long)esp0, (long)eip, fakecallback);
-
-  if (NULL != (fe = find_fake_entry(
-      /*fakecallback:*/fakecallback, /*callercont:*/eip))) {
-    /* already disassembled, no need to disassemble again */
-    esp = esp0 + fe->espdiff;
-    printk(KERN_INFO "fake entry fe=%lx esp=%lx found\n", (long)fe, (long)esp);
-   do_return:
-    if (NULL == add_origarg_entry(/*key:*/esp,
-        ptr0, ptr1, ptr2, ptr3, ptr4, fe->grandcallercont, fakecallback)) {
-      return -ENOMEM;
-    }
-    /* Redirect `ret' in caller to fake_trampoline */
-    *(char**)esp = (char*)fake_trampoline;
-    return 0;
-  }
-
-  ud_init(&ud_obj);
-  /* ud_set_input_buffer(&ud_obj, "\x41\x42\xC3\x90", 4); */
-  /* at most left # instructions ==> at most left # bytes */
-  ud_set_mode(&ud_obj, 32); /* Imp: sizeof(long) * 8 */
-  ud_set_syntax(&ud_obj, UD_SYN_INTEL);
-
-  /* We are doing an abstract interpretation of the disassebly of the caller
-   * in order to find out esp when it returns.
-   */
-  left = left0;
-  eip_frame = eip;
- next_frame:
-  while (framesleft > 0) { 
-    --framesleft;
-    /* Check that the caller has an if (error) ... statement following */
-    checkstate = 1;
-    checkleft = left0 * 0 + 5;
-    ud_set_input_buffer(&ud_obj, (void*)eip_frame, left);
-    ud_set_pc(&ud_obj, (unsigned long)eip_frame); /* for proper jump/call offsets */
-    while (checkleft > 0 && ud_disassemble(&ud_obj)) {
-      --checkleft;
-      dins = ud_insn_asm(&ud_obj);
-      dinsend = dins + strlen(dins);
-      if (dinsend != dins && dinsend[-1] == ' ') --dinsend;
-      *dinsend = '\0'; /* remove trailing space from "ret " etc. */
-      printk(KERN_INFO "C%08lx  %s;\n", (unsigned long)ud_insn_off(&ud_obj), dins);
-      if (checkstate == 1 && 0 == strncmp(dins, "mov ", 4)) {
-      } else if (checkstate == 1 && 0 == strncmp(dins, "pop ", 4)) { /* !! kernel */
-      } else if (checkstate == 1 && 0 == strncmp(dins, "cmp ", 4) &&
-                 (dinsend - dins) >= 10 && 0 == strcmp(dinsend - 5, ", 0x0")) {
-        checkstate = 2;
-      } else if (checkstate == 1 && 0 == strcmp(dins, "test eax, eax")) {
-        checkstate = 2;
-      } else if (checkstate == 1 && 0 == strcmp(dins, "test ebx, ebx")) { /* !! other regs */
-        checkstate = 2;
-      } else if (checkstate == 2 && (0 == strncmp(dins, "jz ", 3) ||
-                                     0 == strncmp(dins, "jnz ", 4))) {
-        checkstate = 0;  /* found the right frame */
-        break;
-      } else {
-        checkstate = 3;
-        break;
-      }
-    }
-    printk(KERN_INFO "checkstate == %d\n", checkstate);
-
-    /* Abstract interpretation of the current stack frame */
-    ud_set_input_buffer(&ud_obj, (void*)eip_frame, left);
-    ud_set_pc(&ud_obj, (unsigned long)eip_frame); /* for proper jump/call offsets */
-    while (left > 0 && ud_disassemble(&ud_obj)) {
-      --left;
-      dins = ud_insn_asm(&ud_obj);
-      dinsend = dins + strlen(dins);
-      if (dinsend != dins && dinsend[-1] == ' ') --dinsend;
-      *dinsend = '\0'; /* remove trailing space from "ret " etc. */
-      /* ud_insn_off displays pointers */
-      printk(KERN_INFO "%08lx  %s;\n", (unsigned long)ud_insn_off(&ud_obj), dins);
-      if (0 == strcmp(dins, "ret")) {
-        printk(KERN_INFO "found ret, esp == %lx + %lx == %lx; eip=%lx\n",
-           (long)esp0, (long)(esp - esp0), (long)esp, (long)eip);
-        assert(esp >= esp0 && "esp too small");
-        if (checkstate != 0) {  /* continue with next frame */
-          eip_frame = *(char**)esp;
-          esp += sizeof(char*);
-          goto next_frame;
-        }
-        /* Imp: 64-bit support */
-        fe = add_fake_entry(
-            /*grandcallercont:*/*(char**)esp,
-            /*fakecallback:*/fakecallback,
-            /*espdiff:*/(long)(esp - esp0),
-            /*callercont:*/eip);
-        goto do_return;
-      } else if (0 == strcmp(dins, "pop esp")) {
-        /* Imp: bounds check esp */
-        esp = *(char**)esp;
-      } else if (0 == strcmp(dins, "pop ebp")) {
-        /* Imp: bounds check esp */
-        ebp = *(char**)esp;
-        esp += sizeof(char*);
-      } else if (0 == strncmp(dins, "pop ", 4)) {
-        /* Imp: increase easp by proper size for pop */
-        esp += sizeof(char*);
-      } else if (0 == strncmp(dins, "push ", 4)) {
-        /* Imp: increase easp by proper size for push */
-        esp -= sizeof(char*);
-      } else if (0 == strcmp(dins, "mov esp, ebp")) {
-        esp = ebp;
-      } else if (0 == strcmp(dins, "mov ebp, esp")) {
-        ebp = esp;
-      } else if (0 == strcmp(dins, "leave")) {
-        /* leave === mov esp, ebp; pop ebp */
-        esp = ebp;
-        /* Imp: bounds check esp */
-        ebp = *(char**)esp;
-        esp += sizeof(char*);
-      } else if (0 == strncmp(dins, "add esp, 0x", 11) ||
-                 0 == strncmp(dins, "add esp, -0x", 12)) {
-        got = sscanf(dins + 9, "%li%n", &delta, &consumed);
-        assert(got > 0);
-        assert(dins + 9 + consumed == dinsend);
-        esp += delta;  /* Also works for negative delta because of sizeof */
-      } else if (0 == strncmp(dins, "sub esp, 0x", 11) ||
-                 0 == strncmp(dins, "sub esp, -0x", 12)) {
-        got = sscanf(dins + 9, "%li%n", &delta, &consumed);
-        assert(got > 0);
-        assert(dins + 9 + consumed == dinsend);
-        esp -= delta;
-      } else if (0 == strncmp(dins, "add ebp, 0x", 11) ||
-                 0 == strncmp(dins, "add ebp, -0x", 12)) {
-        got = sscanf(dins + 9, "%li%n", &delta, &consumed);
-        assert(got > 0);
-        assert(dins + 9 + consumed == dinsend);
-        ebp += delta;
-      } else if (0 == strncmp(dins, "sub ebp, 0x", 11) ||
-                 0 == strncmp(dins, "sub ebp, -0x", 12)) {
-        got = sscanf(dins + 9, "%li%n", &delta, &consumed);
-        assert(got > 0);
-        assert(dins + 9 + consumed == dinsend);
-        ebp -= delta;
-      } else if (0 == strncmp(dins, "mov esp,", 8) ||
-                 0 == strncmp(dins, "lea esp,", 8) ||
-                 0 == strncmp(dins, "add esp,", 8) ||
-                 0 == strncmp(dins, "adc esp,", 8) ||
-                 0 == strncmp(dins, "add esp,", 8) ||
-                 0 == strncmp(dins, "sub esp,", 8) ||
-                 0 == strncmp(dins, "or esp,", 8) ||
-                 0 == strncmp(dins, "and esp,", 8) ||
-                 0 == strncmp(dins, "xor esp,", 8)) {
-        assert(0 && "unsupported change to esp");
-      } else if (0 == strncmp(dins, "mov ebp,", 8) ||
-                 0 == strncmp(dins, "lea ebp,", 8) ||
-                 0 == strncmp(dins, "add ebp,", 8) ||
-                 0 == strncmp(dins, "adc ebp,", 8) ||
-                 0 == strncmp(dins, "add ebp,", 8) ||
-                 0 == strncmp(dins, "sub ebp,", 8) ||
-                 0 == strncmp(dins, "or ebp,", 8) ||
-                 0 == strncmp(dins, "and ebp,", 8) ||
-                 0 == strncmp(dins, "xor ebp,", 8)) {
-        assert(0 && "unsupported change to ebp");
-      } else if (0 == strncmp(dins, "jmp 0x", 6) ||
-                 0 == strncmp(dins, "jnz 0x", 6)) {
-        /* The reason why we jump at jnz is that we want if (error) { ... }
-         * be true. This is usually compiled as `test eax, eax; jz ...'.
-         * jz jumps if eax is 0 (error is false). So we jump when jnz jumps.
-         */
-        got = sscanf(dins + 4, "%li%n", &delta, &consumed);
-        assert(got > 0);
-        assert(dins + 4 + consumed == dinsend); /* !! */
-        ud_set_input_buffer(&ud_obj, (void*)delta, left);
-        ud_set_pc(&ud_obj, (unsigned long)(char*)delta);
-      } else if (0 == strncmp(dins, "jmp dword 0x", 12) ||
-                 0 == strncmp(dins, "jnz dword 0x", 12)) { /* !! accept dword everywhere */
-        /* The reason why we jump at jnz is that we want if (error) { ... }
-         * be true. This is usually compiled as `test eax, eax; jz ...'.
-         * jz jumps if eax is 0 (error is false). So we jump when jnz jumps.
-         */
-        got = sscanf(dins + 10, "%li%n", &delta, &consumed);
-        assert(got > 0);
-        assert(dins + 10 + consumed == dinsend); /* !! why does it assert? */
-        ud_set_input_buffer(&ud_obj, (void*)delta, left);
-        ud_set_pc(&ud_obj, (unsigned long)(char*)delta);
-      }
-    }
-    assert(0 && "could not find ret");
-  }
-  assert(0 && "too many frames up");
-  return -EINVAL;
-}
-
 /* --- */
 
 /*
@@ -599,16 +140,7 @@ inline static char *get_path(struct dentry *dentry, char *buffer, int buflen) {
   return ERR_PTR(-ENAMETOOLONG);
 }
 
-static int rmtimeup_inode_unlink(struct inode *dir, struct dentry * dentry) {
-  return 0;
-}
-
-static int rmtimeup_inode_link(struct dentry * old_dentry,
-                               struct inode *dir, 
-                               struct dentry * dentry) {
-  return 0;
-}
-/* !! setxattr */
+/* !! hook setxattr */
 
 /** Find the dentry of file with TAGDB_NAME on the filesystem sb.
  * The caller should dput the returned value unless IS_ERR(retval).
@@ -679,7 +211,7 @@ struct dentry *dentry_from_path(struct dentry *root, char const *path,
 }
 
 /** Updates mtime of dentry, dentry->parent etc., up to dentry->d_sb->s_root. */
-static void update_mtimes_and_dput(struct dentry *dentry,
+/*!!static*/ void update_mtimes_and_dput(struct dentry *dentry,
     struct timespec now,
     struct dentry *nolock1, struct dentry *nolock2) {
   struct dentry *dentry_set = dentry;
@@ -709,6 +241,7 @@ static void update_mtimes_and_dput(struct dentry *dentry,
   dput(dentry);
 };
 
+#if 0
 static int wrapped_callback(
     int origret, void *ptr0, void *ptr1, void *ptr2, void *ptr3, void *ptr4) {
   char *old_path = ptr0, *new_path = ptr2;
@@ -768,7 +301,9 @@ RETURN_WRAP(static, int, rmtimeup_inode_rename,
       /*ptr4:*/dget(new_dentry->d_sb->s_root),
       /*fakecallback:*/wrapped_callback);
 }
+#endif
 
+#if 0
 void rmtimeup_inode_post_setxattr(struct dentry *dentry, char *name,
     void *value, size_t size, int flags) {
   /* !! implement this */
@@ -793,48 +328,259 @@ static int rmtimeup_sb_umount( struct vfsmount *mnt, int flags ) {
   /* !! implement this */
   return 0;
 }
+#endif
 
 /* --- */
 
-static struct security_operations rmtimeup_security_ops = {
-    .inode_unlink        = rmtimeup_inode_unlink,
-    .inode_link          = rmtimeup_inode_link,
-    .inode_rename        = rmtimeup_inode_rename,
-    .inode_post_setxattr = rmtimeup_inode_post_setxattr,
-    .inode_removexattr   = rmtimeup_inode_removexattr,
-    .sb_mount            = rmtimeup_sb_mount,
-    .sb_umount           = rmtimeup_sb_umount,
+/** Returns a negative integer on error, or a positive integer at least min,
+ * containing complete assembly instructions from pc.
+ */
+int disasm_safe_size(char *pc, int min) {
+  unsigned maxbytes = 100;
+  char *dins;
+  char *dinsend;
+  unsigned inslen;
+  int inslen_total = 0;
+  ud_t ud_obj;
+  ud_init(&ud_obj);
+  ud_set_mode(&ud_obj, 32);
+  ud_set_syntax(&ud_obj, UD_SYN_INTEL);
+  ud_set_input_buffer(&ud_obj, (void*)pc, maxbytes);
+  ud_set_pc(&ud_obj, (unsigned long)(void*)pc);
+  if (debug) printk(KERN_DEBUG "disasm_safe_size pc=%p min=%d\n", pc, min);
+  while (inslen_total < min && 0 != (inslen = ud_disassemble(&ud_obj))) {
+    inslen_total += inslen;
+    dins = ud_insn_asm(&ud_obj);
+    dinsend = dins + strlen(dins);
+    if (dinsend != dins && dinsend[-1] == ' ') --dinsend;
+    *dinsend = '\0'; /* remove trailing space from "ret " etc. */
+    if (debug) printk(KERN_DEBUG "D%08lx  %s;\n", (unsigned long)ud_insn_off(&ud_obj), dins);
+    if (0 == strncmp(dins, "push ", 5)) {
+    } else if (0 == strncmp(dins, "jmp 0x", 6)) {
+      /* !! not always */
+    } else if ((0 == strncmp(dins, "mov ", 4) ||
+                0 == strncmp(dins, "sub ", 4) ||
+                0 == strncmp(dins, "add ", 4)) &&
+               0 != strncmp(dins + 4, "[esp", 4)) {
+    } else {
+      printk(KERN_INFO "unsafe assembly instruction\n");
+      return -EILSEQ;
+    }
+  }
+  return inslen_total >= min ? inslen_total : -EMSGSIZE;
+} 
+
+/* --- */
+
+#define JMP_SIZE 5
+#define MAX_TRAMPOLINE_SIZE 24
+
+/* Set 5 bytes starting from p to a `jmp dword jmp_target' i386 instruction. */
+static __always_inline void set_jmp32(char *p, char *jmp_target) {
+  /* This assumes i386 32-bit architecture */
+  int32_t relative = (int32_t)(jmp_target - p - JMP_SIZE);
+  register int32_t first = 0xE9 | (relative << 8);
+  /* Imp: is there a better specifier than volatile? */
+  /* We set p[4] first, because if another processor is alredy running the
+   * code, p[4] is expected to be already fetched.
+   */
+  ((volatile char*)p)[4] = relative >> 24;
+  *(volatile int32_t*)p = first;
+}
+
+/** If there is a `jmp dword jmp_target' i386 instruction at p, return
+ * jmp_target, otherwise return NULL;
+ */
+char *get_jmp32_target(char *p) {
+  if (p[0] != (char)0xE9) return NULL;
+  return *(int32_t*)(p + 1) + p + JMP_SIZE;
+}
+
+struct hook {
+  char trampoline[MAX_TRAMPOLINE_SIZE];
+  char jmp_to_replacement[JMP_SIZE];
+  /* char* wouldn't work after rmmod(1) */
+  char name[32];
+  /** The hook is void iff orig_function == NULL. */
+  char *orig_function;
+  char *replacement_function;
 };
 
-static int mod_register = 0;
+/** Return 0 if undone properly, 1 if some indirections still remain (but
+ * references to hook->replacement_function are removed.
+ */
+static int undo_hook(struct hook *hook) {
+  register char *p, *q;
+  if (hook->orig_function != NULL) {
+    printk(KERN_DEBUG "undoing hook %s.\n", hook->name);
+    if (get_jmp32_target(hook->orig_function) == hook->jmp_to_replacement) {
+      p = hook->orig_function;
+      q = hook->trampoline;
+      /* overwrite this first, already in the instruction cache if executing
+       * on another processor
+       */
+      p[4] = q[4];
+      *(int32_t*)p = *(int32_t*)q;
+      hook->orig_function = NULL;
+    } else {
+      printk(KERN_WARNING "rmtimeup: could not unhook %s.\n", hook->name);
+      set_jmp32(hook->jmp_to_replacement, hook->trampoline);
+      hook->replacement_function = NULL;
+      return 1;
+    }
+    hook->replacement_function = NULL;
+  }
+  return 0;
+}
+
+/** Set fields of hook, modify code pointers. Return 0 or error. */
+static int set_hook(char *orig_function, char *replacement_function,
+    char *name, struct hook *hook, char **prev_out) {
+  int safe_size_orig = disasm_safe_size(orig_function, JMP_SIZE);
+  if (safe_size_orig < 0) return safe_size_orig;  /* error */
+  strncpy(hook->name, name, sizeof(hook->name));
+  hook->name[sizeof(hook->name) - 1] = '\0';
+  hook->orig_function = orig_function;
+  hook->replacement_function = replacement_function;
+  /* This indirection is needed for undoing hooks. */
+  set_jmp32(hook->jmp_to_replacement, replacement_function);
+  memcpy(hook->trampoline, orig_function, safe_size_orig);
+  set_jmp32(hook->trampoline + safe_size_orig,
+      orig_function + safe_size_orig);
+  set_jmp32(orig_function, hook->jmp_to_replacement);  /* do this last */
+  if (prev_out != NULL) *prev_out = hook->trampoline;
+  return 0;
+}
+
+/** Good gcc type checking if function_name doesn't have __VA_ARGS__:
+ * warning: initialization from incompatible pointer type
+ */
+#define DEFINE_ANCHOR(function_name, ...) \
+  static int function_name##__repl(__VA_ARGS__); \
+  static struct { \
+    /* Call this within DEFINE_ANCHOR(foo):
+     * foo__anchor.prev(...)
+     */ \
+    int (*prev)(__VA_ARGS__); \
+    int (*orig_function)(__VA_ARGS__); \
+    int (*replacement_function)(__VA_ARGS__); \
+    char *name; \
+  } function_name##__anchor = { \
+    .prev = NULL, \
+    .orig_function = function_name,  /* warn on type error */ \
+    .replacement_function = function_name##__repl, \
+    .name = #function_name, \
+  }; \
+  static int function_name##__repl(__VA_ARGS__)
+
+#define SETUP_HOOK(function_name, i) \
+  set_hook( \
+      /*orig_function:*/(char*)function_name##__anchor.orig_function, \
+      /*replacement_function:*/(char*)function_name##__anchor.replacement_function, \
+      /*name:*/function_name##__anchor.name, \
+      /*hook:*/rmtimeup_hooks + (i), \
+      /*prev_out:*/(char**)&function_name##__anchor.prev)
+
+/* --- */
+
+DEFINE_ANCHOR(vfs_rename,
+              struct inode *old_dir, struct dentry *old_dentry,
+              struct inode *new_dir, struct dentry *new_dentry) {
+  int prevret;
+  printk(KERN_INFO "my vfs_rename called\n");
+  prevret = vfs_rename__anchor.prev(
+      old_dir, old_dentry, new_dir, new_dentry);
+  printk(KERN_INFO "my vfs_rename prevret=%d\n", prevret);
+  return prevret;  
+}
+
+DEFINE_ANCHOR(vfs_link,
+              struct dentry *old_dentry, struct inode *dir,
+              struct dentry *new_dentry) {
+  int prevret;
+  printk(KERN_INFO "my vfs_link called\n");
+  prevret = vfs_link__anchor.prev(
+      old_dentry, dir, new_dentry);
+  printk(KERN_INFO "my vfs_link prevret=%d\n", prevret);
+  return prevret;  
+}
+
+DEFINE_ANCHOR(vfs_unlink,
+              struct inode *dir, struct dentry *dentry) {
+  int prevret;
+  printk(KERN_INFO "my vfs_unlink called\n");
+  prevret = vfs_unlink__anchor.prev(dir, dentry);
+  printk(KERN_INFO "my vfs_unlink prevret=%d\n", prevret);
+  return prevret;
+}
+
+/* --- */
+
+#define MAX_RMTIMEUP_HOOKS 8
+spinlock_t hooks_lock;
+static struct hook *rmtimeup_hooks = NULL;
+
+static char undo_all_hooks(void) {
+  int i;
+  char do_keep = 0;
+  for (i = 0; i < MAX_RMTIMEUP_HOOKS; ++i) {
+    if (undo_hook(rmtimeup_hooks + i)) do_keep = 1;
+  }
+  return do_keep;
+}
+
+static int init_hooks(void) {
+  unsigned long irq_flags;
+  int error;
+  spin_lock_init(&hooks_lock);
+  if (NULL == (rmtimeup_hooks = kmalloc(
+      MAX_RMTIMEUP_HOOKS * sizeof*rmtimeup_hooks, GFP_KERNEL))) {
+    error = -ENOMEM;
+    goto do_exit;
+  }
+  memset(rmtimeup_hooks, '\0', MAX_RMTIMEUP_HOOKS * sizeof*rmtimeup_hooks);
+  spin_lock_irqsave(&hooks_lock, irq_flags);  /* Imp: smaller lock */
+  /* If you add hooks, don't forget to increase MAX_RMTIMEUP_HOOKS */
+  if (0 != (error = SETUP_HOOK(vfs_rename, 0)) ||
+      0 != (error = SETUP_HOOK(vfs_unlink, 1)) ||
+      0 != (error = SETUP_HOOK(vfs_link, 2))) {
+    undo_all_hooks();
+    goto do_unlock;
+  }
+  error = 0;
+ do_unlock:
+  spin_unlock_irqrestore(&hooks_lock, irq_flags);
+ do_exit:
+  return error;
+}
+
+static void exit_hooks(void) {
+  char do_keep;
+  unsigned long irq_flags;
+  /* TODO: add mutex in case of removing the module while a vfs_rename is
+   * in progress. Is this possible?
+   */
+  spin_lock_irqsave(&hooks_lock, irq_flags);  /* Imp: smaller lock */
+  do_keep = undo_all_hooks();
+  spin_unlock_irqrestore(&hooks_lock, irq_flags);
+  if (do_keep) {
+    /* Keep rmtimeup_hooks if we couldn't unhook everything. */
+    printk(KERN_WARNING "rmtimeup: %d bytes leaked when unloading\n",
+        sizeof*rmtimeup_hooks);
+  } else {
+    kfree(rmtimeup_hooks);
+  }
+}
 
 static int __init init_rmtimeup(void) {
   int ret;
   printk(KERN_INFO "rmtimeup version "RMTIMEUP_VERSION" loaded\n");
-  /* !! only if debugging */
-  printk(KERN_DEBUG "rmtimeup hello version "RMTIMEUP_VERSION" loaded\n");
-
-  /* register as security module */
-  ret = register_security( &rmtimeup_security_ops );
-  mod_register = 0;
-  if (ret) {
-    if (ret == -EAGAIN) {
-      printk(KERN_ERR"rmtimeup: Another security module is active.\n");
-    }
-    /* Basic support for stacking below an existing security module */
-    ret = mod_reg_security(MOD_REG_NAME, &rmtimeup_security_ops);
-    if (ret != 0) {
-      printk(KERN_ERR"Failed to register rmtimeup module with"
-          " the kernel\n");
-      goto no_lsm;
-    }
-    mod_register = 1;
-  }
-
-  init_fes();  /* Imp: return error code */
-  init_oes();
-
- no_lsm:
+  if (debug) printk(KERN_DEBUG "rmtimeup hello version "RMTIMEUP_VERSION" loaded\n");
+  
+  ret = init_hooks();
+  if (ret) goto done;
+  ret = 0;
+ done:
   return ret;
 }
 
@@ -842,20 +588,11 @@ static int __init init_rmtimeup(void) {
  * exit_rmtimeup()
  */
 static void __exit exit_rmtimeup(void) {
-  if (mod_register) {
-    if (mod_unreg_security(MOD_REG_NAME, &rmtimeup_security_ops)) {
-      printk(KERN_INFO "rmtimeup: failed to unregister "
-                       "rmtimeup security module with primary "
-                       "module.\n");
-    }
-  } else if (unregister_security(&rmtimeup_security_ops)) {
-    printk(KERN_INFO "rmtimeup: failed to unregister "
-                     "rmtimeup security module.\n");
-  }
+  exit_hooks();
   printk(KERN_INFO "rmtimeup: unloaded\n");
 }
 
-security_initcall(init_rmtimeup);
+module_init(init_rmtimeup);
 module_exit(exit_rmtimeup);
 
 #endif /* COMPILING */
