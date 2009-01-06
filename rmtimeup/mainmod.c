@@ -22,14 +22,15 @@
  *
  */
 
-/* !! use shared.* (for documentation purposes) */
+/* Imp: use shared.* (for documentation purposes) */
 /* TODO: use mtime/atime/ctime of fs root inode to detect that it has been
  *       mounted without this kernel module. atime detects ls /fsroot, but not
  *       any operatin on /fsroot/foo/bar.
  *       * propose a solution which survives an unclean umount
  *       * ext2 has mount count, last mount time, last write time (tune2fs),
  *         reiserfs doesn't have these features
- * TODO: sometimes an `mv' makes the system freeze
+ * TODO: test for stability
+ * TODO: simplify the disassembler, recognize only a few instructions
  */
 
 #include <linux/kernel.h>
@@ -87,12 +88,10 @@ MODULE_LICENSE("GPL");
 
 #define MOD_REG_NAME "rmtimeup"
 
-/* !! properly fail */
+/* TODO: fail properly */
 #define assert(x) do { if (!(x)) printk(KERN_ERR \
     "%s: assertion failed: %s\n", THIS_MODULE->name, #x); } while(0)
 
-/* !! implement this */
-/* !! use THIS_MODULE->name in all log lines */
 int debug;
 module_param_named(debug, debug, int, 0);
 MODULE_PARM_DESC(debug, "print KERN_DEBUG messages");
@@ -174,45 +173,6 @@ static __always_inline char has_dentry_tagdb(struct super_block *sb,
   return 1;
 }
 
-/** Start in root, traverse directories path ("DEV:/DIR1/DIR2/FILENAME"),
- * return the dentry reached (i.e. dentry of DIR2).
- * If there is an error traversing, return dentry reached without errors.
- *
- * The caller should call dput(retval) and dget(root).
- */
-struct dentry *dentry_from_path(struct dentry *root, char const *path,
-    struct dentry *nolock1, struct dentry *nolock2) {
-  struct dentry *dentry1, *dentry2;
-  char do_lock;
-  char const *p = path;
-  char const *q;
-  while (*p != '\0' && *p != '/') ++p;  /* skip "sda1:" */
-  dentry1 = dget(root);
-  while (1) {
-    while (*p == '/') ++p;
-    if (*p == '\0') break;
-    q = p;
-    while (*q != '\0' && *q != '/') ++q;
-    /* %*s in printk doesn't truncate the string (q - p) */
-    printk(KERN_INFO "in dentry1=%p lookup=(%*s)\n", dentry1, q - p, p);
-    do_lock = dentry1 != nolock1 && dentry1 != nolock2;
-    if (do_lock) mutex_lock(&dentry1->d_inode->i_mutex);
-    dentry2 = lookup_one_len(p, dentry1, q - p);  /* does dget(dentry2) */
-    if (do_lock) mutex_unlock(&dentry1->d_inode->i_mutex);
-    if (!IS_ERR(dentry2) && dentry2->d_inode == NULL) {
-      dput(dentry2);
-      dentry2 = ERR_PTR(-ENOENT);
-    }
-    if (IS_ERR(dentry2)) break;
-    if (!S_ISDIR(dentry2->d_inode->i_mode)) { dput(dentry2); break; }
-    dput(dentry1);
-    dentry1 = dentry2;
-    p = q;
-  }
-  printk(KERN_INFO "traversed to dentry1=%p\n", dentry1);
-  return dentry1;
-}
-
 /** Updates mtime of dentry, dentry->parent etc., up to dentry->d_sb->s_root. */
 static void update_mtimes(struct dentry *dentry,
     struct timespec now,
@@ -222,9 +182,11 @@ static void update_mtimes(struct dentry *dentry,
   struct inode *inode;
   char do_lock;
   int error;
+  char have_tagdb = has_dentry_tagdb(dentry->d_sb, nolock1, nolock2);
 
-  PRINT_DEBUG("update_mtime dentry=%p now=%ld\n",
-      dentry, (long)now.tv_sec);
+  PRINT_DEBUG("update_mtime dentry=%p now=%ld have_tagdb=%d\n",
+      dentry, (long)now.tv_sec, have_tagdb);
+  if (!have_tagdb) return;  /* Imp: optimize, don't even precompute */
   newattrs.ia_valid = ATTR_MTIME;
   newattrs.ia_mtime = now;
   while (1) {
@@ -404,17 +366,16 @@ int disasm_safe_size(char *pc, int min) {
     dins = ud_insn_asm(&ud_obj);
     dinsend = dins + strlen(dins);
     if (dinsend != dins && dinsend[-1] == ' ') --dinsend;
-    *dinsend = '\0'; /* remove trailing space from "ret " etc. */
+    *dinsend = '\0';  /* remove trailing space from "ret " etc. */
     PRINT_DEBUG("D%08lx  %s;\n", (unsigned long)ud_insn_off(&ud_obj), dins);
     if (0 == strncmp(dins, "push ", 5)) {
     } else if (0 == strncmp(dins, "jmp 0x", 6)) {
-      /* !! not always */
     } else if ((0 == strncmp(dins, "mov ", 4) ||
                 0 == strncmp(dins, "sub ", 4) ||
-                0 == strncmp(dins, "add ", 4))
-               /* && 0 != strncmp(dins + 4, "[esp", 4) */) {
+                0 == strncmp(dins, "add ", 4))) {
     } else {
-      printk(KERN_INFO "unsafe assembly instruction\n");
+      PRINT_DEBUG("unrecognized instruction at 0x%lx\n",
+          (unsigned long)ud_insn_off(&ud_obj));
       return -EILSEQ;
     }
   }
@@ -472,7 +433,8 @@ static int undo_hook(struct hook *hook) {
       *(int32_t*)p = *(int32_t*)q;
       hook->orig_function = NULL;
     } else {
-      printk(KERN_WARNING "rmtimeup: could not unhook %s.\n", hook->name);
+      printk(KERN_WARNING "%s: could not unhook %s.\n",
+          THIS_MODULE->name, hook->name);
       set_jmp32(hook->jmp_to_replacement, hook->trampoline);
       hook->replacement_function = NULL;
       return 1;
@@ -487,11 +449,12 @@ static int set_hook(char *orig_function, char *replacement_function,
     char *name, struct hook *hook, char **prev_out) {
   int safe_size_orig;
   if (NULL == orig_function) {
-    printk(KERN_ERR "rmtimeup: orig_function is NULL for %s.\n", name);
+    printk(KERN_ERR "%s: orig_function is NULL for %s.\n",
+        THIS_MODULE->name, name);
     return -ENOKEY;
   }
   if (0 > (safe_size_orig = disasm_safe_size(orig_function, JMP_SIZE))) {
-    printk(KERN_ERR "rmtimeup: could not hook %s.\n", name);
+    printk(KERN_ERR "%s: could not hook %s.\n", THIS_MODULE->name, name);
     return -EINVAL;  /* error */
   }
   strncpy(hook->name, name, sizeof(hook->name));
@@ -712,11 +675,19 @@ DEFINE_ANCHOR(int, vfs_unlink,
               struct inode *dir,
               struct dentry *dentry VFSMNT_TARG(mnt)) {
   int prevret;
+  struct timespec now;
+  struct dentry *dentry_parent = dentry->d_parent;
+
   PRINT_DEBUG("my vfs_unlink called\n%s", "");
   prevret = vfs_unlink__anchor.prev(dir, dentry VFSMNT_ARG(mnt));
   PRINT_DEBUG("my vfs_unlink prevret=%d\n", prevret);
+  if (prevret == 0) {
+    now = current_fs_time(dentry_parent->d_sb);
+    update_mtimes(dentry_parent, now,
+        /*nolock1:*/dentry_parent, /*nolock2:*/dentry_parent);
+    notify_rmtimeup_events(EVENT_FILES_CHANGED);
+  }
   return prevret;
-  /* !! implement this */
 }
 
 DEFINE_ANCHOR(int, vfs_setxattr,
@@ -837,15 +808,15 @@ static void exit_hooks(void) {
   char do_keep;
   unsigned long irq_flags;
   /* TODO: add mutex in case of removing the module while a vfs_rename is
-   * in progress. Is this possible?
+   * in progress. lock_kernel() or preempt.h? Is this possible?
    */
   spin_lock_irqsave(&hooks_lock, irq_flags);  /* Imp: smaller lock */
   do_keep = undo_all_hooks();
   spin_unlock_irqrestore(&hooks_lock, irq_flags);
   if (do_keep) {
     /* Keep rmtimeup_hooks if we couldn't unhook everything. */
-    printk(KERN_WARNING "rmtimeup: %d bytes leaked when unloading\n",
-        sizeof*rmtimeup_hooks);
+    printk(KERN_WARNING "%s: %d bytes leaked when unloading\n",
+        THIS_MODULE->name, sizeof*rmtimeup_hooks);
   } else {
     kfree(rmtimeup_hooks);
   }
@@ -879,7 +850,7 @@ static void __exit exit_rmtimeup(void) {
   /* exit_rmtimeup doesn't get called if /proc/rmtimeup-event is open. */
   remove_proc_entry("rmtimeup-event", 0);
   exit_hooks();
-  printk(KERN_INFO "rmtimeup: unloaded\n");
+  printk(KERN_INFO "%s: unloaded\n", THIS_MODULE->name);
 }
 
 module_init(init_rmtimeup);
