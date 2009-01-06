@@ -65,9 +65,11 @@ MODULE_LICENSE("GPL");
 #if USE_EXTRA_VFSMNT
 #  define VFSMNT_TARG(name) , struct vfsmount *name
 #  define VFSMNT_ARG(name) , name
+#  define FILE_TARG(name) , struct file *name
 #else
 #  define VFSMNT_TARG(name)
 #  define VFSMNT_ARG(name)
+#  define FILE_ARG(name)
 #endif
 
 #ifndef SETPROC_OPS
@@ -664,23 +666,27 @@ DEFINE_ANCHOR(int, vfs_unlink,
 }
 
 DEFINE_ANCHOR(int, vfs_setxattr,
-              struct dentry *dentry, char *name, void *value,
-              size_t size, int flags) {
+              struct dentry *dentry VFSMNT_TARG(mnt),
+              char *name, void *value,
+              size_t size, int flags FILE_TARG(filp)) {
   /* corresponding command: setfattr -n user.foo -v bar t1.jpg */
   int prevret;
   PRINT_DEBUG("my vfs_setxattr called\n%s", "");
-  prevret = vfs_setxattr__anchor.prev(dentry, name, value, size, flags);
+  prevret = vfs_setxattr__anchor.prev(dentry VFSMNT_ARG(mnt), name, value,
+      size, flags VFSMNT_ARG(filp));
   PRINT_DEBUG("my vfs_setxattr prevret=%d\n", prevret);
   /* !! implement this */
   return prevret;
 }
 
 DEFINE_ANCHOR(int, vfs_removexattr,
-              struct dentry *dentry, char *name) {
+              struct dentry *dentry VFSMNT_TARG(mnt),
+              char *name FILE_TARG(filp)) {
   /* corresponding command: setfattr -x user.foo t1.jpg */
   int prevret;
   PRINT_DEBUG("my vfs_removexattr called\n%s", "");
-  prevret = vfs_removexattr__anchor.prev(dentry, name);
+  prevret = vfs_removexattr__anchor.prev(dentry VFSMNT_ARG(mnt),
+      name VFSMNT_ARG(filp));
   PRINT_DEBUG("my vfs_removexattr prevret=%d\n", prevret);
   if (prevret == 0) {
     notify_rmtimeup_events(EVENT_FILES_CHANGED);
