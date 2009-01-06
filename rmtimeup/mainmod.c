@@ -73,7 +73,7 @@ MODULE_LICENSE("GPL");
 #else
 #  define VFSMNT_TARG(name)
 #  define VFSMNT_ARG(name)
-#  define FILE_ARG(name)
+#  define FILE_TARG(name)
 #endif
 
 #ifndef USE_SPRINT_SYMBOL
@@ -627,7 +627,6 @@ static __always_inline char *my_lookup_name(char *name, char *nearby) {
   /* We assume that the function machine code is at least 128 bytes long. */
   for (l = lmin; l <= lmax; l += 128) {
     sprint_symbol(buffer, l);
-    /* PRINT_DEBUG("SY(%s) nameat=(%s) at=0x%lx\n", buffer, nameat, l); */
     /* Now buffer is something like "do_mount+0xf1..." */
     if (0 == strncmp(buffer, nameat, nameatlen)) {
       if (1 != sscanf(buffer + nameatlen - 2, "%li", &m)) return NULL;
