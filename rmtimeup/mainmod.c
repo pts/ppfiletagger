@@ -70,6 +70,10 @@ MODULE_LICENSE("GPL");
 #  define VFSMNT_ARG(name)
 #endif
 
+#ifndef SETPROC_OPS
+#define SETPROC_OPS(entry, ops) (entry)->proc_fops = &(ops)
+#endif
+
 /** File name of the tags database in the filesystem root */
 #define TAGDB_NAME "tags.sqlite"
 
@@ -126,8 +130,6 @@ inline static char *get_path(struct dentry *dentry, char *buffer, int buflen) {
  Elong:
   return ERR_PTR(-ENAMETOOLONG);
 }
-
-/* !! hook setxattr */
 
 /** Find the dentry of file with TAGDB_NAME on the filesystem sb.
  * The caller should dput the returned value unless IS_ERR(retval).
@@ -290,20 +292,59 @@ RETURN_WRAP(static, int, rmtimeup_inode_rename,
 }
 #endif
 
-#if 0
-void rmtimeup_inode_post_setxattr(struct dentry *dentry, char *name,
-    void *value, size_t size, int flags) {
-  /* !! implement this */
-  return;  /* the xattr is set anyway */
-}
+/* --- /proc/rmtimeup-event */
 
-int rmtimeup_inode_removexattr(struct dentry *dentry, char *name) {
+static int rmtimeup_event_open(struct inode *inode, struct file *file) {
+  if (0 != (file->f_mode & FMODE_WRITE)) return -EACCES;  /* even for root */
   /* !! implement this */
   return 0;
 }
-#endif
 
-/* --- */
+static int rmtimeup_event_release(struct inode *inode, struct file *file) {
+  /* !! implement this */
+  return 0;
+}
+
+static ssize_t rmtimeup_event_read(
+    struct file *file, char *buffer, size_t len, loff_t *offset) {
+  return 0;
+}
+
+static unsigned rmtimeup_event_poll(struct file *filp, poll_table *wait) {
+  unsigned mask = 0;
+#if 0
+  unsigned long flags;
+  poll_wait(filp, &filenames_wq, wait);
+  spin_lock_irqsave(&shared.lock, flags);
+  if (!list_empty(&shared.filenames_list)) mask |= POLLIN | POLLRDNORM;
+  spin_unlock_irqrestore(&shared.lock, flags);
+#endif
+  return mask;
+  /* !! implement this */
+}
+
+static ssize_t rmtimeup_event_write(struct file *file,
+                                    const char *buffer,
+                                    size_t len,
+                                    loff_t *offset) {
+  return -EINVAL;
+}
+
+static loff_t rmtimeup_event_llseek(struct file *filp, loff_t ofs,
+    int whence) {
+  return -ESPIPE;
+}
+
+static struct file_operations rmtimeup_event_ops = {
+  .open    = rmtimeup_event_open,
+  .release = rmtimeup_event_release,  /* close */
+  .read    = rmtimeup_event_read,
+  .write   = rmtimeup_event_write,
+  .poll    = rmtimeup_event_poll,
+  .llseek  = rmtimeup_event_llseek,
+};
+
+/* --- Hooks and anchors */
 
 /** Returns a negative integer on error, or a positive integer at least min,
  * containing complete assembly instructions from pc.
@@ -342,8 +383,6 @@ int disasm_safe_size(char *pc, int min) {
   }
   return inslen_total >= min ? inslen_total : -EMSGSIZE;
 } 
-
-/* --- */
 
 #define JMP_SIZE 5
 #define MAX_TRAMPOLINE_SIZE 24
@@ -641,12 +680,20 @@ static void exit_hooks(void) {
 }
 
 static int __init init_rmtimeup(void) {
+  struct proc_dir_entry *p;
   int ret;
+
   printk(KERN_INFO "%s version "RMTIMEUP_VERSION" loaded\n", THIS_MODULE->name);
   if (debug) printk(KERN_DEBUG "rmtimeup hello version "RMTIMEUP_VERSION" loaded\n");
   
   ret = init_hooks();
   if (ret) goto done;
+
+  p = create_proc_entry("rmtimeup-event", 0444, NULL);  /* for all users */
+  if (!p) { ret = -ENOMEM; goto done; }
+  p->owner = THIS_MODULE;  /* !! add as log prefix */
+  SETPROC_OPS(p, rmtimeup_event_ops);
+
   ret = 0;
  done:
   return ret;
@@ -656,6 +703,7 @@ static int __init init_rmtimeup(void) {
  * exit_rmtimeup()
  */
 static void __exit exit_rmtimeup(void) {
+  remove_proc_entry("rmtimeup-event", 0);
   exit_hooks();
   printk(KERN_INFO "rmtimeup: unloaded\n");
 }
