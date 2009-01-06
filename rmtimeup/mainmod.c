@@ -55,6 +55,7 @@
 #include <linux/device.h>
 #include <linux/namei.h>
 #include <linux/kallsyms.h>
+#include <linux/mount.h>
 
 #include "ud.h"
 
@@ -62,6 +63,9 @@ MODULE_AUTHOR("Peter Szabo");
 MODULE_DESCRIPTION("rmtimeup "RMTIMEUP_VERSION" recursive filesystem change notify");
 MODULE_LICENSE("GPL");
 
+#ifndef USE_EXTRA_VFSMNT
+#  define USE_EXTRA_VFSMNT 0
+#endif
 #if USE_EXTRA_VFSMNT
 #  define VFSMNT_TARG(name) , struct vfsmount *name
 #  define VFSMNT_ARG(name) , name
@@ -70,6 +74,10 @@ MODULE_LICENSE("GPL");
 #  define VFSMNT_TARG(name)
 #  define VFSMNT_ARG(name)
 #  define FILE_ARG(name)
+#endif
+
+#ifndef USE_SPRINT_SYMBOL
+#  define USE_SPRINT_SYMBOL 0
 #endif
 
 #ifndef SETPROC_OPS
@@ -542,12 +550,15 @@ static int undo_hook(struct hook *hook) {
 /** Set fields of hook, modify code pointers. Return 0 or error. */
 static int set_hook(char *orig_function, char *replacement_function,
     char *name, struct hook *hook, char **prev_out) {
-  int safe_size_orig = disasm_safe_size(orig_function, JMP_SIZE);
-  if (orig_function == NULL) {
+  int safe_size_orig;
+  if (NULL == orig_function) {
     printk(KERN_ERR "rmtimeup: orig_function is NULL for %s.\n", name);
-    return -EFAULT;
+    return -ENOKEY;
   }
-  if (safe_size_orig < 0) return safe_size_orig;  /* error */
+  if (0 > (safe_size_orig = disasm_safe_size(orig_function, JMP_SIZE))) {
+    printk(KERN_ERR "rmtimeup: could not hook %s.\n", name);
+    return -EINVAL;  /* error */
+  }
   strncpy(hook->name, name, sizeof(hook->name));
   hook->name[sizeof(hook->name) - 1] = '\0';
   hook->orig_function = orig_function;
@@ -597,9 +608,43 @@ static int set_hook(char *orig_function, char *replacement_function,
       /*hook:*/rmtimeup_hooks + (i), \
       /*prev_out:*/(char**)&function_name##__anchor.prev)
 
+#if USE_SPRINT_SYMBOL
+/** Return pointer to kernel symbol with name, which is at most 32768 bytes
+ * away from `nearby' -- or NULL if not found.
+ */
+static __always_inline char *my_lookup_name(char *name, char *nearby) {
+  unsigned long lbase = (unsigned long)nearby, l;
+  unsigned long lmin = lbase <= 32768 ? 0 : lbase - 32768;
+  unsigned long lmax = lbase + 32768 < lbase ? 0UL - 1 : lbase + 32768;
+  long m;
+  char buffer[KSYM_SYMBOL_LEN];
+  char nameat[64];
+  int nameatlen;
+  strncpy(nameat, name, sizeof(nameat));
+  nameat[sizeof(nameat) - 1] = '\0';
+  nameatlen = strlen(nameat) + 3;
+  strcpy(nameat + nameatlen - 3, "+0x");
+  /* We assume that the function machine code is at least 128 bytes long. */
+  for (l = lmin; l <= lmax; l += 128) {
+    sprint_symbol(buffer, l);
+    /* PRINT_DEBUG("SY(%s) nameat=(%s) at=0x%lx\n", buffer, nameat, l); */
+    /* Now buffer is something like "do_mount+0xf1..." */
+    if (0 == strncmp(buffer, nameat, nameatlen)) {
+      if (1 != sscanf(buffer + nameatlen - 2, "%li", &m)) return NULL;
+      return (char*)(l - m);
+    }
+  }
+  return NULL;  /* not found */
+}
+#else
+static __always_inline char *my_lookup_name(char *name, char *nearby) {
+  return (char*)kallsyms_lookup_name(name);
+}
+#endif
+
 /**
  * Like DEFINE_ANCHOR, but to be used with SETUP_HOOK_KALLSYMS, which fetches
- * the symbol using kallsyms_lookup_name. This works even for functions
+ * the symbol using my_lookup_name. This works even for functions
  * without EXPORT_SYMBOL (such as do_mount and umount_tree).
  */
 #define DEFINE_ANCHOR_KALLSYMS(return_type, function_name, ...) \
@@ -620,9 +665,9 @@ static int set_hook(char *orig_function, char *replacement_function,
   }; \
   static return_type function_name##__repl(__VA_ARGS__)
 
-#define SETUP_HOOK_KALLSYMS(function_name, i) \
+#define SETUP_HOOK_KALLSYMS(function_name, nearby, i) \
   ({ \
-    function_name##__anchor.orig_function = (void*)kallsyms_lookup_name(#function_name); \
+    function_name##__anchor.orig_function = (void*)my_lookup_name(#function_name, (char*)nearby); \
     SETUP_HOOK(function_name, i); \
   })
 
@@ -752,8 +797,8 @@ static int init_hooks(void) {
       0 != (error = SETUP_HOOK(vfs_link, 2)) ||
       0 != (error = SETUP_HOOK(vfs_setxattr, 3)) ||
       0 != (error = SETUP_HOOK(vfs_removexattr, 4)) ||
-      0 != (error = SETUP_HOOK_KALLSYMS(do_mount, 5)) ||
-      0 != (error = SETUP_HOOK_KALLSYMS(umount_tree, 6))) {
+      0 != (error = SETUP_HOOK_KALLSYMS(do_mount, /*nearby:*/mnt_pin, 5)) ||
+      0 != (error = SETUP_HOOK_KALLSYMS(umount_tree, /*nearby:*/mnt_pin, 6))) {
     undo_all_hooks();
     goto do_unlock;
   }
