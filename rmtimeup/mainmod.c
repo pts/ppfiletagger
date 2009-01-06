@@ -54,6 +54,7 @@
 #include <linux/spinlock.h>
 #include <linux/device.h>
 #include <linux/namei.h>
+#include <linux/kallsyms.h>
 
 #include "ud.h"
 
@@ -67,19 +68,6 @@ MODULE_LICENSE("GPL");
 #else
 #  define VFSMNT_TARG(name)
 #  define VFSMNT_ARG(name)
-#endif
-
-/**** pts ****/
-#undef  SUPPORT_UPDATEDB_ARG
-#define SUPPORT_UPDATEDB_ARG 0
-#undef  SUPPORT_OUTPUT_ARG
-#define SUPPORT_OUTPUT_ARG 0
-#undef  SUPPORT_EXCLUDEDIR
-/** Just a setting, not used by the kernel module. */
-#define SUPPORT_EXCLUDEDIR 0
-
-#ifndef SETPROC_OPS
-#define SETPROC_OPS(entry, ops) (entry)->proc_fops = &(ops)
 #endif
 
 /** File name of the tags database in the filesystem root */
@@ -274,7 +262,7 @@ RETURN_WRAP(static, int, rmtimeup_inode_rename,
     struct inode * old_dir,
     struct dentry * old_dentry,
     struct inode * new_dir,
-    struct dentry * new_dentry ) {
+    struct dentry * new_dentry) {
   char path_buffer[PATH_MAX + 16], *old_path, *new_path;
   printk(KERN_INFO "rename ebp=%p esp0=%p eip=%p "
       "a=%p b=%p c=%p d=%p\n",
@@ -310,20 +298,6 @@ void rmtimeup_inode_post_setxattr(struct dentry *dentry, char *name,
 }
 
 int rmtimeup_inode_removexattr(struct dentry *dentry, char *name) {
-  /* !! implement this */
-  return 0;
-}
-
-static int rmtimeup_sb_mount(char *dev_name, 
-			     struct nameidata *nd, 
-			     char *type, 
-			     unsigned long flags, 
-			     void *data) {
-  /* !! implement this */
-  return 0;
-}
-
-static int rmtimeup_sb_umount( struct vfsmount *mnt, int flags ) {
   /* !! implement this */
   return 0;
 }
@@ -436,6 +410,10 @@ static int undo_hook(struct hook *hook) {
 static int set_hook(char *orig_function, char *replacement_function,
     char *name, struct hook *hook, char **prev_out) {
   int safe_size_orig = disasm_safe_size(orig_function, JMP_SIZE);
+  if (orig_function == NULL) {
+    printk(KERN_ERR "rmtimeup: orig_function is NULL for %s.\n", name);
+    return -EFAULT;
+  }
   if (safe_size_orig < 0) return safe_size_orig;  /* error */
   strncpy(hook->name, name, sizeof(hook->name));
   hook->name[sizeof(hook->name) - 1] = '\0';
@@ -451,26 +429,32 @@ static int set_hook(char *orig_function, char *replacement_function,
   return 0;
 }
 
-/** Good gcc type checking if function_name doesn't have __VA_ARGS__:
+/**
+ * Define a function and the corresponding anchor structure, whose .prev
+ * field can be used to call the original function. A SETUP_HOOK is also
+ * needed in order for this to work. function_name must be a kernel function
+ * exported with EXPORT_SYMBOL.
+ *
+ * Good gcc type checking if function_name doesn't have __VA_ARGS__:
  * warning: initialization from incompatible pointer type
  */
-#define DEFINE_ANCHOR(function_name, ...) \
-  static int function_name##__repl(__VA_ARGS__); \
+#define DEFINE_ANCHOR(return_type, function_name, ...) \
+  static return_type function_name##__repl(__VA_ARGS__); \
   static struct { \
     /* Call this within DEFINE_ANCHOR(foo):
      * foo__anchor.prev(...)
      */ \
-    int (*prev)(__VA_ARGS__); \
-    int (*orig_function)(__VA_ARGS__); \
-    int (*replacement_function)(__VA_ARGS__); \
+    return_type (*prev)(__VA_ARGS__); \
+    return_type (*orig_function)(__VA_ARGS__); \
+    return_type (*replacement_function)(__VA_ARGS__); \
     char *name; \
   } function_name##__anchor = { \
     .prev = NULL, \
-    .orig_function = function_name,  /* warn on type error */ \
+    .orig_function = function_name,  /* warn on type error or undefined symbol */ \
     .replacement_function = function_name##__repl, \
     .name = #function_name, \
   }; \
-  static int function_name##__repl(__VA_ARGS__)
+  static return_type function_name##__repl(__VA_ARGS__)
 
 #define SETUP_HOOK(function_name, i) \
   set_hook( \
@@ -480,9 +464,38 @@ static int set_hook(char *orig_function, char *replacement_function,
       /*hook:*/rmtimeup_hooks + (i), \
       /*prev_out:*/(char**)&function_name##__anchor.prev)
 
+/**
+ * Like DEFINE_ANCHOR, but to be used with SETUP_HOOK_KALLSYMS, which fetches
+ * the symbol using kallsyms_lookup_name. This works even for functions
+ * without EXPORT_SYMBOL (such as do_mount and umount_tree).
+ */
+#define DEFINE_ANCHOR_KALLSYMS(return_type, function_name, ...) \
+  static return_type function_name##__repl(__VA_ARGS__); \
+  static struct { \
+    /* Call this within DEFINE_ANCHOR(foo):
+     * foo__anchor.prev(...)
+     */ \
+    return_type (*prev)(__VA_ARGS__); \
+    return_type (*orig_function)(__VA_ARGS__); \
+    return_type (*replacement_function)(__VA_ARGS__); \
+    char *name; \
+  } function_name##__anchor = { \
+    .prev = NULL, \
+    .orig_function = function_name + 1 ? NULL : NULL,  /* warn on type error or undefined symbol */ \
+    .replacement_function = function_name##__repl, \
+    .name = #function_name, \
+  }; \
+  static return_type function_name##__repl(__VA_ARGS__)
+
+#define SETUP_HOOK_KALLSYMS(function_name, i) \
+  ({ \
+    function_name##__anchor.orig_function = (void*)kallsyms_lookup_name(#function_name); \
+    SETUP_HOOK(function_name, i); \
+  })
+
 /* --- */
 
-DEFINE_ANCHOR(vfs_rename,
+DEFINE_ANCHOR(int, vfs_rename,
               struct inode *old_dir, struct dentry *old_dentry VFSMNT_TARG(old_mnt),
               struct inode *new_dir, struct dentry *new_dentry VFSMNT_TARG(new_mnt)) {
   int prevret;
@@ -491,9 +504,10 @@ DEFINE_ANCHOR(vfs_rename,
       old_dir, old_dentry VFSMNT_ARG(old_mnt), new_dir, new_dentry VFSMNT_ARG(new_mnt));
   printk(KERN_INFO "my vfs_rename prevret=%d\n", prevret);
   return prevret;  
+  /* !! implement this */
 }
 
-DEFINE_ANCHOR(vfs_link,
+DEFINE_ANCHOR(int, vfs_link,
               struct dentry *old_dentry VFSMNT_TARG(old_mnt),
               struct inode *dir,
               struct dentry *new_dentry VFSMNT_TARG(new_mnt)) {
@@ -503,9 +517,10 @@ DEFINE_ANCHOR(vfs_link,
       old_dentry VFSMNT_ARG(old_mnt), dir, new_dentry VFSMNT_ARG(new_mnt));
   printk(KERN_INFO "my vfs_link prevret=%d\n", prevret);
   return prevret;  
+  /* !! implement this */
 }
 
-DEFINE_ANCHOR(vfs_unlink,
+DEFINE_ANCHOR(int, vfs_unlink,
               struct inode *dir,
               struct dentry *dentry VFSMNT_TARG(mnt)) {
   int prevret;
@@ -513,6 +528,54 @@ DEFINE_ANCHOR(vfs_unlink,
   prevret = vfs_unlink__anchor.prev(dir, dentry VFSMNT_ARG(mnt));
   printk(KERN_INFO "my vfs_unlink prevret=%d\n", prevret);
   return prevret;
+  /* !! implement this */
+}
+
+DEFINE_ANCHOR(int, vfs_setxattr,
+              struct dentry *dentry, char *name, void *value,
+              size_t size, int flags) {
+  /* corresponding command: setfattr -n user.foo -v bar t1.jpg */
+  int prevret;
+  printk(KERN_INFO "my vfs_setxattr called\n");
+  prevret = vfs_setxattr__anchor.prev(dentry, name, value, size, flags);
+  printk(KERN_INFO "my vfs_setxattr prevret=%d\n", prevret);
+  return prevret; 
+  /* !! implement this */
+}
+
+DEFINE_ANCHOR(int, vfs_removexattr,
+              struct dentry *dentry, char *name) {
+  /* corresponding command: setfattr -x user.foo t1.jpg */
+  int prevret;
+  printk(KERN_INFO "my vfs_removexattr called\n");
+  prevret = vfs_removexattr__anchor.prev(dentry, name);
+  printk(KERN_INFO "my vfs_removexattr prevret=%d\n", prevret);
+  return prevret; 
+  /* !! implement this */
+}
+
+DEFINE_ANCHOR_KALLSYMS(long, do_mount,
+              char *dev_name, char *dir_name, char *type_page,
+              unsigned long flags, void *data_page) {
+  /* This function is also called for -o remount */
+  /* correponding command: mount -t $type_page $dev_name $dir_name */
+  long prevret;
+  printk(KERN_INFO "my do_mount dev_name=(%s) dir_name=(%s) called\n",
+      dev_name, dir_name);
+  prevret = do_mount__anchor.prev(dev_name, dir_name, type_page,
+      flags, data_page);
+  printk(KERN_INFO "my do_mount dev_name=(%s) dir_name=(%s) prevret=%ld\n",
+      dev_name, dir_name, prevret);
+  return prevret;
+  /* !! implement this */
+}
+
+DEFINE_ANCHOR_KALLSYMS(void, umount_tree,
+              struct vfsmount *mnt, int propagate, struct list_head *kill) {
+  printk(KERN_INFO "my umount_tree called\n");
+  umount_tree__anchor.prev(mnt, propagate, kill);
+  printk(KERN_INFO "my umount_tree returned\n");
+  /* !! implement this */
 }
 
 /* --- */
@@ -544,7 +607,11 @@ static int init_hooks(void) {
   /* If you add hooks, don't forget to increase MAX_RMTIMEUP_HOOKS */
   if (0 != (error = SETUP_HOOK(vfs_rename, 0)) ||
       0 != (error = SETUP_HOOK(vfs_unlink, 1)) ||
-      0 != (error = SETUP_HOOK(vfs_link, 2))) {
+      0 != (error = SETUP_HOOK(vfs_link, 2)) ||
+      0 != (error = SETUP_HOOK(vfs_setxattr, 3)) ||
+      0 != (error = SETUP_HOOK(vfs_removexattr, 4)) ||
+      0 != (error = SETUP_HOOK_KALLSYMS(do_mount, 5)) ||
+      0 != (error = SETUP_HOOK_KALLSYMS(umount_tree, 6))) {
     undo_all_hooks();
     goto do_unlock;
   }
@@ -575,7 +642,7 @@ static void exit_hooks(void) {
 
 static int __init init_rmtimeup(void) {
   int ret;
-  printk(KERN_INFO "rmtimeup version "RMTIMEUP_VERSION" loaded\n");
+  printk(KERN_INFO "%s version "RMTIMEUP_VERSION" loaded\n", THIS_MODULE->name);
   if (debug) printk(KERN_DEBUG "rmtimeup hello version "RMTIMEUP_VERSION" loaded\n");
   
   ret = init_hooks();
