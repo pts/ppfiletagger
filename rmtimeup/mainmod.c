@@ -80,12 +80,18 @@ MODULE_LICENSE("GPL");
 #define MOD_REG_NAME "rmtimeup"
 
 /* !! properly fail */
-#define assert(x) do { if (!(x)) { printk(KERN_ERR "assertion failed: %s\n", #x); } } while(0)
+#define assert(x) do { if (!(x)) printk(KERN_ERR \
+    "%s: assertion failed: %s\n", THIS_MODULE->name, #x); } while(0)
 
 /* !! implement this */
+/* !! use THIS_MODULE->name in all log lines */
 int debug;
 module_param_named(debug, debug, int, 0);
 MODULE_PARM_DESC(debug, "print KERN_DEBUG messages");
+
+/* Usage: PRINT_DEBUG("hello\n%s", ""); */
+#define PRINT_DEBUG(fmt_string, ...) do { if (debug) printk(KERN_DEBUG \
+    "%s: " fmt_string, THIS_MODULE->name, __VA_ARGS__); } while(0)
 
 /* --- */
 
@@ -294,37 +300,123 @@ RETURN_WRAP(static, int, rmtimeup_inode_rename,
 
 /* --- /proc/rmtimeup-event */
 
-static int rmtimeup_event_open(struct inode *inode, struct file *file) {
-  if (0 != (file->f_mode & FMODE_WRITE)) return -EACCES;  /* even for root */
-  /* !! implement this */
+/** Constants for rmtimeup_event.value */
+#define EVENT_FILES_CHANGED '1'
+#define EVENT_MOUNTS_CHANGED '2'
+/* #define EVENT_FILES_AND_MOUNTS_CHANGED '3' */
+
+struct rmtimeup_event {
+  struct list_head list;
+  /** Entities waiting for read. */
+  wait_queue_head_t wq;
+  /** Held when getting or setting .value. */
+  rwlock_t value_lock;
+  /** 0: no data; '1': some files changed; '2': mounts changed; '3': '1'|'2' */
+  char value;
+};
+
+/** Held when reading or writing rmtimeup_event_list. */
+static DEFINE_SPINLOCK(rmtimeup_event_list_lock);
+static LIST_HEAD(rmtimeup_event_list);
+
+/** May return ERR_PTR(...) */
+static struct rmtimeup_event *new_rmtimeup_event(void) {
+  unsigned long irq_flags;
+  struct rmtimeup_event *ev = kmalloc(sizeof*ev, GFP_KERNEL);
+  if (NULL == ev) return ERR_PTR(-ENOMEM);
+  rwlock_init(&ev->value_lock);
+  ev->value = 0;
+  INIT_LIST_HEAD(&ev->list);
+  init_waitqueue_head(&ev->wq);
+  spin_lock_irqsave(&rmtimeup_event_list_lock, irq_flags);
+  list_add(&ev->list, &rmtimeup_event_list);
+  spin_unlock_irqrestore(&rmtimeup_event_list_lock, irq_flags);
+  return ev;
+}
+
+static void delete_rmtimeup_event(struct rmtimeup_event *ev) {
+  assert(ev != NULL);
+  if (ev != NULL) {
+    unsigned long irq_flags;
+    spin_lock_irqsave(&rmtimeup_event_list_lock, irq_flags);
+    list_del(&ev->list);
+    spin_unlock_irqrestore(&rmtimeup_event_list_lock, irq_flags);
+    kfree(ev);
+  }
+}
+
+void notify_rmtimeup_events(char value) {
+  unsigned long irq_flags;
+  struct list_head *pos;
+  struct rmtimeup_event *ev;
+  char old_value;
+  value = '0' + (value & 3);
+  if (0 == value) return;
+  /* Imp: hold the spin lock for less time */
+  spin_lock_irqsave(&rmtimeup_event_list_lock, irq_flags);
+  list_for_each(pos, &rmtimeup_event_list) {
+    ev = (struct rmtimeup_event*)pos;  /* list_entry(pos, struct rmtimeup_event, list) */
+    write_lock(&ev->value_lock);  /* irq_flags saved above */
+    old_value = ev->value;
+    ev->value |= value;
+    write_unlock(&ev->value_lock);
+    if (old_value != value) wake_up_interruptible(&ev->wq);
+  }
+  spin_unlock_irqrestore(&rmtimeup_event_list_lock, irq_flags);
+}
+
+static int rmtimeup_event_open(struct inode *inode, struct file *filp) {
+  struct rmtimeup_event *ev;
+  if (0 != (filp->f_mode & FMODE_WRITE)) return -EACCES;  /* even for root */
+  ev = new_rmtimeup_event();
+  if (IS_ERR(ev)) return PTR_ERR(ev);
+  filp->private_data = (void*)ev;
   return 0;
 }
 
-static int rmtimeup_event_release(struct inode *inode, struct file *file) {
-  /* !! implement this */
+static int rmtimeup_event_release(struct inode *inode, struct file *filp) {
+  delete_rmtimeup_event((struct rmtimeup_event*)filp->private_data);
   return 0;
 }
 
 static ssize_t rmtimeup_event_read(
-    struct file *file, char *buffer, size_t len, loff_t *offset) {
-  return 0;
+    struct file *filp, char *user_buffer, size_t len, loff_t *offset) {
+  struct rmtimeup_event *ev = (struct rmtimeup_event*)filp->private_data;
+  char value;
+  unsigned long irq_flags;
+  DEFINE_WAIT(wait);
+  while (1) {
+    write_lock_irqsave(&ev->value_lock, irq_flags);
+    value = ev->value;
+    if (value != 0) break;
+    write_unlock_irqrestore(&ev->value_lock, irq_flags);
+
+    /* Imp: do we wait correctly? */
+    prepare_to_wait(&ev->wq, &wait, TASK_INTERRUPTIBLE);
+    schedule();
+    finish_wait(&ev->wq, &wait);
+    if (signal_pending(current)) return -ERESTARTSYS;
+  }
+  ev->value = 0;
+  write_unlock_irqrestore(&ev->value_lock, irq_flags);
+  if (put_user(value, user_buffer)) return -EFAULT;
+  ++*offset;
+  return 1;
 }
 
 static unsigned rmtimeup_event_poll(struct file *filp, poll_table *wait) {
+  struct rmtimeup_event *ev = (struct rmtimeup_event*)filp->private_data;
   unsigned mask = 0;
-#if 0
-  unsigned long flags;
-  poll_wait(filp, &filenames_wq, wait);
-  spin_lock_irqsave(&shared.lock, flags);
-  if (!list_empty(&shared.filenames_list)) mask |= POLLIN | POLLRDNORM;
-  spin_unlock_irqrestore(&shared.lock, flags);
-#endif
+  unsigned long irq_flags;
+  poll_wait(filp, &ev->wq, wait);
+  read_lock_irqsave(&ev->value_lock, irq_flags);
+  if (0 != ev->value) mask |= POLLIN | POLLRDNORM;
+  read_unlock_irqrestore(&ev->value_lock, irq_flags);
   return mask;
-  /* !! implement this */
 }
 
-static ssize_t rmtimeup_event_write(struct file *file,
-                                    const char *buffer,
+static ssize_t rmtimeup_event_write(struct file *filp,
+                                    const char *user_buffer,
                                     size_t len,
                                     loff_t *offset) {
   return -EINVAL;
@@ -361,14 +453,14 @@ int disasm_safe_size(char *pc, int min) {
   ud_set_syntax(&ud_obj, UD_SYN_INTEL);
   ud_set_input_buffer(&ud_obj, (void*)pc, maxbytes);
   ud_set_pc(&ud_obj, (unsigned long)(void*)pc);
-  if (debug) printk(KERN_DEBUG "disasm_safe_size pc=%p min=%d\n", pc, min);
+  PRINT_DEBUG("disasm_safe_size pc=%p min=%d\n", pc, min);
   while (inslen_total < min && 0 != (inslen = ud_disassemble(&ud_obj))) {
     inslen_total += inslen;
     dins = ud_insn_asm(&ud_obj);
     dinsend = dins + strlen(dins);
     if (dinsend != dins && dinsend[-1] == ' ') --dinsend;
     *dinsend = '\0'; /* remove trailing space from "ret " etc. */
-    if (debug) printk(KERN_DEBUG "D%08lx  %s;\n", (unsigned long)ud_insn_off(&ud_obj), dins);
+    PRINT_DEBUG("D%08lx  %s;\n", (unsigned long)ud_insn_off(&ud_obj), dins);
     if (0 == strncmp(dins, "push ", 5)) {
     } else if (0 == strncmp(dins, "jmp 0x", 6)) {
       /* !! not always */
@@ -424,7 +516,7 @@ struct hook {
 static int undo_hook(struct hook *hook) {
   register char *p, *q;
   if (hook->orig_function != NULL) {
-    printk(KERN_DEBUG "undoing hook %s.\n", hook->name);
+    PRINT_DEBUG("undoing hook %s.\n", hook->name);
     if (get_jmp32_target(hook->orig_function) == hook->jmp_to_replacement) {
       p = hook->orig_function;
       q = hook->trampoline;
@@ -535,13 +627,14 @@ static int set_hook(char *orig_function, char *replacement_function,
 /* --- */
 
 DEFINE_ANCHOR(int, vfs_rename,
-              struct inode *old_dir, struct dentry *old_dentry VFSMNT_TARG(old_mnt),
-              struct inode *new_dir, struct dentry *new_dentry VFSMNT_TARG(new_mnt)) {
+    struct inode *old_dir, struct dentry *old_dentry VFSMNT_TARG(old_mnt),
+    struct inode *new_dir, struct dentry *new_dentry VFSMNT_TARG(new_mnt)) {
   int prevret;
-  printk(KERN_INFO "my vfs_rename called\n");
+  PRINT_DEBUG("my vfs_rename called\n%s", "");
   prevret = vfs_rename__anchor.prev(
-      old_dir, old_dentry VFSMNT_ARG(old_mnt), new_dir, new_dentry VFSMNT_ARG(new_mnt));
-  printk(KERN_INFO "my vfs_rename prevret=%d\n", prevret);
+      old_dir, old_dentry VFSMNT_ARG(old_mnt),
+      new_dir, new_dentry VFSMNT_ARG(new_mnt));
+  PRINT_DEBUG("my vfs_rename prevret=%d\n", prevret);
   return prevret;  
   /* !! implement this */
 }
@@ -551,10 +644,10 @@ DEFINE_ANCHOR(int, vfs_link,
               struct inode *dir,
               struct dentry *new_dentry VFSMNT_TARG(new_mnt)) {
   int prevret;
-  printk(KERN_INFO "my vfs_link called\n");
+  PRINT_DEBUG("my vfs_link called\n%s", "");
   prevret = vfs_link__anchor.prev(
       old_dentry VFSMNT_ARG(old_mnt), dir, new_dentry VFSMNT_ARG(new_mnt));
-  printk(KERN_INFO "my vfs_link prevret=%d\n", prevret);
+  PRINT_DEBUG("my vfs_link prevret=%d\n", prevret);
   return prevret;  
   /* !! implement this */
 }
@@ -563,9 +656,9 @@ DEFINE_ANCHOR(int, vfs_unlink,
               struct inode *dir,
               struct dentry *dentry VFSMNT_TARG(mnt)) {
   int prevret;
-  printk(KERN_INFO "my vfs_unlink called\n");
+  PRINT_DEBUG("my vfs_unlink called\n%s", "");
   prevret = vfs_unlink__anchor.prev(dir, dentry VFSMNT_ARG(mnt));
-  printk(KERN_INFO "my vfs_unlink prevret=%d\n", prevret);
+  PRINT_DEBUG("my vfs_unlink prevret=%d\n", prevret);
   return prevret;
   /* !! implement this */
 }
@@ -575,22 +668,25 @@ DEFINE_ANCHOR(int, vfs_setxattr,
               size_t size, int flags) {
   /* corresponding command: setfattr -n user.foo -v bar t1.jpg */
   int prevret;
-  printk(KERN_INFO "my vfs_setxattr called\n");
+  PRINT_DEBUG("my vfs_setxattr called\n%s", "");
   prevret = vfs_setxattr__anchor.prev(dentry, name, value, size, flags);
-  printk(KERN_INFO "my vfs_setxattr prevret=%d\n", prevret);
-  return prevret; 
+  PRINT_DEBUG("my vfs_setxattr prevret=%d\n", prevret);
   /* !! implement this */
+  return prevret;
 }
 
 DEFINE_ANCHOR(int, vfs_removexattr,
               struct dentry *dentry, char *name) {
   /* corresponding command: setfattr -x user.foo t1.jpg */
   int prevret;
-  printk(KERN_INFO "my vfs_removexattr called\n");
+  PRINT_DEBUG("my vfs_removexattr called\n%s", "");
   prevret = vfs_removexattr__anchor.prev(dentry, name);
-  printk(KERN_INFO "my vfs_removexattr prevret=%d\n", prevret);
+  PRINT_DEBUG("my vfs_removexattr prevret=%d\n", prevret);
+  if (prevret == 0) {
+    notify_rmtimeup_events(EVENT_FILES_CHANGED);
+    /* !! implement this */
+  }
   return prevret; 
-  /* !! implement this */
 }
 
 DEFINE_ANCHOR_KALLSYMS(long, do_mount,
@@ -599,28 +695,30 @@ DEFINE_ANCHOR_KALLSYMS(long, do_mount,
   /* This function is also called for -o remount */
   /* correponding command: mount -t $type_page $dev_name $dir_name */
   long prevret;
-  printk(KERN_INFO "my do_mount dev_name=(%s) dir_name=(%s) called\n",
+  PRINT_DEBUG("my do_mount dev_name=(%s) dir_name=(%s) called\n",
       dev_name, dir_name);
   prevret = do_mount__anchor.prev(dev_name, dir_name, type_page,
       flags, data_page);
-  printk(KERN_INFO "my do_mount dev_name=(%s) dir_name=(%s) prevret=%ld\n",
+  PRINT_DEBUG("my do_mount dev_name=(%s) dir_name=(%s) prevret=%ld\n",
       dev_name, dir_name, prevret);
+  if (prevret == 0) {
+    notify_rmtimeup_events(EVENT_MOUNTS_CHANGED);
+  }
   return prevret;
-  /* !! implement this */
 }
 
 DEFINE_ANCHOR_KALLSYMS(void, umount_tree,
               struct vfsmount *mnt, int propagate, struct list_head *kill) {
-  printk(KERN_INFO "my umount_tree called\n");
+  PRINT_DEBUG("my umount_tree called\n%s", "");
   umount_tree__anchor.prev(mnt, propagate, kill);
-  printk(KERN_INFO "my umount_tree returned\n");
-  /* !! implement this */
+  PRINT_DEBUG("my umount_tree returned\n%s", "");
+  notify_rmtimeup_events(EVENT_MOUNTS_CHANGED);
 }
 
 /* --- */
 
 #define MAX_RMTIMEUP_HOOKS 8
-spinlock_t hooks_lock;
+static DEFINE_SPINLOCK(hooks_lock);
 static struct hook *rmtimeup_hooks = NULL;
 
 static char undo_all_hooks(void) {
@@ -635,7 +733,6 @@ static char undo_all_hooks(void) {
 static int init_hooks(void) {
   unsigned long irq_flags;
   int error;
-  spin_lock_init(&hooks_lock);
   if (NULL == (rmtimeup_hooks = kmalloc(
       MAX_RMTIMEUP_HOOKS * sizeof*rmtimeup_hooks, GFP_KERNEL))) {
     error = -ENOMEM;
@@ -683,8 +780,9 @@ static int __init init_rmtimeup(void) {
   struct proc_dir_entry *p;
   int ret;
 
-  printk(KERN_INFO "%s version "RMTIMEUP_VERSION" loaded\n", THIS_MODULE->name);
-  if (debug) printk(KERN_DEBUG "rmtimeup hello version "RMTIMEUP_VERSION" loaded\n");
+  printk(KERN_INFO "%s: version "RMTIMEUP_VERSION" loaded\n",
+      THIS_MODULE->name);
+  PRINT_DEBUG("hello, version "RMTIMEUP_VERSION" loaded\n%s", "");
   
   ret = init_hooks();
   if (ret) goto done;
@@ -703,6 +801,7 @@ static int __init init_rmtimeup(void) {
  * exit_rmtimeup()
  */
 static void __exit exit_rmtimeup(void) {
+  /* exit_rmtimeup doesn't get called if /proc/rmtimeup-event is open. */
   remove_proc_entry("rmtimeup-event", 0);
   exit_hooks();
   printk(KERN_INFO "rmtimeup: unloaded\n");
