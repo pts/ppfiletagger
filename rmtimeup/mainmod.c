@@ -22,9 +22,7 @@
  *
  */
 
-/* !! do we need spin_lock_irq/spin_lock_irqsave? a simple spin_lock would be enough */
-/* !! get rid of compile warnings */
-/* !! use shared (for documentation purposes) */
+/* !! use shared.* (for documentation purposes) */
 /* TODO: use mtime/atime/ctime of fs root inode to detect that it has been
  *       mounted without this kernel module. atime detects ls /fsroot, but not
  *       any operatin on /fsroot/foo/bar.
@@ -136,7 +134,7 @@ inline static char *get_path(struct dentry *dentry, char *buffer, int buflen) {
   }
  mountroot:
   namelen = strlen(dentry->d_sb->s_id);
-  buflen -=namelen + 2;
+  buflen -= namelen + 2;
   if (buflen < 0)
           goto Elong;
   *--end = ':';
@@ -216,7 +214,7 @@ struct dentry *dentry_from_path(struct dentry *root, char const *path,
 }
 
 /** Updates mtime of dentry, dentry->parent etc., up to dentry->d_sb->s_root. */
-/*!!static*/ void update_mtimes_and_dput(struct dentry *dentry,
+static void update_mtimes(struct dentry *dentry,
     struct timespec now,
     struct dentry *nolock1, struct dentry *nolock2) {
   struct dentry *dentry_set = dentry;
@@ -225,7 +223,7 @@ struct dentry *dentry_from_path(struct dentry *root, char const *path,
   char do_lock;
   int error;
 
-  printk(KERN_INFO "update_mtime dentry=%p now=%ld\n",
+  PRINT_DEBUG("update_mtime dentry=%p now=%ld\n",
       dentry, (long)now.tv_sec);
   newattrs.ia_valid = ATTR_MTIME;
   newattrs.ia_mtime = now;
@@ -243,7 +241,6 @@ struct dentry *dentry_from_path(struct dentry *root, char const *path,
     if (IS_ROOT(dentry_set)) break;
     dentry_set = dentry_set->d_parent;
   }
-  dput(dentry);
 };
 
 #if 0
@@ -676,13 +673,77 @@ DEFINE_ANCHOR(int, vfs_rename,
     struct inode *old_dir, struct dentry *old_dentry VFSMNT_TARG(old_mnt),
     struct inode *new_dir, struct dentry *new_dentry VFSMNT_TARG(new_mnt)) {
   int prevret;
+  struct dentry *old_dentry_parent = dget(old_dentry->d_parent);
+  struct dentry *nolock1 = old_dentry_parent;
+  char is_dir = old_dentry->d_inode ?
+      S_ISDIR(old_dentry->d_inode->i_mode) : 0;
+  struct dentry *new_dentry_parent = dget(new_dentry->d_parent);
+  struct dentry *nolock2 = new_dentry_parent;
+  char had_root = IS_ROOT(old_dentry) || IS_ROOT(new_dentry);
+  char old_dentry_name[NAME_MAX + 1], new_dentry_name[NAME_MAX + 1];
+  struct timespec now;
+
   PRINT_DEBUG("my vfs_rename called\n%s", "");
+
+  memcpy(old_dentry_name, old_dentry->d_name.name, old_dentry->d_name.len);
+  old_dentry_name[old_dentry->d_name.len] = '\0';
+
+  memcpy(new_dentry_name, new_dentry->d_name.name, new_dentry->d_name.len);
+  new_dentry_name[new_dentry->d_name.len] = '\0';
+
   prevret = vfs_rename__anchor.prev(
       old_dir, old_dentry VFSMNT_ARG(old_mnt),
       new_dir, new_dentry VFSMNT_ARG(new_mnt));
   PRINT_DEBUG("my vfs_rename prevret=%d\n", prevret);
+  if (prevret == 0 && !had_root) {
+    /* At this point, get_path(old_dentry) and get_path(new_dentry) don't
+     * give the same pathnames as what they gave before the
+     * vfs_rename__anchor.prev call, but their parents are still the same
+     * and valid (but the {old,new}->d_parent pointers have swapped).
+     *
+     * So we reuse (old_dentry_parent, old_entry_name) and
+     * (new_dentry_parent, new_entry_name) here.
+     */
+    old_dentry = old_dentry_parent;
+    if (is_dir) {
+      /* If the original old_dentry was a directory, we descend here to
+       * update its mtime (and then its parent's mtime, and then up to the
+       * root). Otherwise we'll update its parent's mtime (and then up to the
+       * root).
+       */
+      /* We don't need mutex_lock(&old_dentry_parent->d_inode->i_mutex) here,
+       * it is already locked in fs/namei.c:lock_rename(). We get a deadlock
+       * if we try to lock it again.
+       */
+      old_dentry_parent = lookup_one_len(old_dentry_name, old_dentry,
+          strlen(old_dentry_name));
+      if (IS_ERR(old_dentry_parent) || old_dentry_parent->d_inode == NULL) {
+        old_dentry_parent = old_dentry;
+      } else {
+        dput(old_dentry);  /* we'll do dput(old_dentry_parent) later */
+      }
+    }
+
+    now = current_fs_time(old_dentry_parent->d_sb);
+    update_mtimes(old_dentry_parent, now, nolock1, nolock2);
+
+    new_dentry = new_dentry_parent;
+    if (is_dir) {
+      new_dentry_parent = lookup_one_len(new_dentry_name, new_dentry,
+          strlen(new_dentry_name));
+      if (IS_ERR(new_dentry_parent) || new_dentry_parent->d_inode == NULL) {
+        new_dentry_parent = new_dentry;
+      } else {
+        dput(new_dentry);  /* we'll do dput(new_dentry_parent) later */
+      }
+    }
+    update_mtimes(new_dentry_parent, now, nolock1, nolock2);
+
+    notify_rmtimeup_events(EVENT_FILES_CHANGED);
+  }
+  dput(new_dentry_parent);
+  dput(old_dentry_parent);
   return prevret;  
-  /* !! implement this */
 }
 
 DEFINE_ANCHOR(int, vfs_link,
