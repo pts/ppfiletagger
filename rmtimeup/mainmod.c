@@ -243,68 +243,6 @@ static void update_mtimes(struct dentry *dentry,
   }
 };
 
-#if 0
-static int wrapped_callback(
-    int origret, void *ptr0, void *ptr1, void *ptr2, void *ptr3, void *ptr4) {
-  char *old_path = ptr0, *new_path = ptr2;
-  struct dentry *old_dentry = ptr1, *new_dentry = ptr3, *root = ptr4;
-  struct timespec now = current_fs_time(new_dentry->d_sb);
-  printk(KERN_INFO "rmtimeup: origret=%d oldcont=(%s) newcont=(%s)\n",
-      origret, old_path, new_path);
-  if (origret == 0) {
-    /* We specify nolock1=old_dentry->d_parent and nolock2=new_dentry->d_parent
-     * because
-     * lock_rename in fs/namei.c has already locked those inodes, and if we
-     * tried to lock again, we would get a deadlock.
-     */
-    update_mtimes_and_dput(dentry_from_path(root, old_path,
-        /*nolock1:*/old_dentry->d_parent, /*nolock2:*/new_dentry->d_parent),
-        now,
-        /*nolock1:*/old_dentry->d_parent, /*nolock2:*/new_dentry->d_parent);
-    update_mtimes_and_dput(dentry_from_path(root, new_path,
-        /*nolock1:*/old_dentry->d_parent, /*nolock2:*/new_dentry->d_parent),
-        now,
-        /*nolock1:*/old_dentry->d_parent, /*nolock2:*/new_dentry->d_parent);
-  }
-  dput(root);
-  kfree(old_path);
-  kfree(new_path);
-  /* return -ENOTCONN; // too late to return an error, the move has already taken place */
-  return origret;
-}
-
-RETURN_WRAP(static, int, rmtimeup_inode_rename,
-    struct inode * old_dir,
-    struct dentry * old_dentry,
-    struct inode * new_dir,
-    struct dentry * new_dentry) {
-  char path_buffer[PATH_MAX + 16], *old_path, *new_path;
-  printk(KERN_INFO "rename ebp=%p esp0=%p eip=%p "
-      "a=%p b=%p c=%p d=%p\n",
-      wrap__ebp, wrap__esp0, wrap__eip,
-      old_dir, old_dentry, new_dir, new_dentry);
-  if (new_dentry->d_inode) return 0;
-  /* ^^^ Dat: usually we get an `aX' for new_dentry, inode is not
-   *     available yet
-   */
-  assert(old_dentry->d_sb == new_dentry->d_sb);  /* on same filesystem */
-  if (!has_dentry_tagdb(new_dentry->d_sb,
-      /*nolock1:*/old_dentry->d_parent,
-      /*nolock2:*/new_dentry->d_parent)) return 0;
-  old_path = kstrdup(get_path(old_dentry, path_buffer, sizeof path_buffer),
-      GFP_KERNEL);
-  new_path = kstrdup(get_path(new_dentry, path_buffer, sizeof path_buffer),
-      GFP_KERNEL);
-  /* !! disallow module onload while call pending */
-  printk(KERN_INFO "rmtimeup: old=(%s) new=(%s)\n", old_path, new_path);
-  RETURN_WITH_CALLBACK_REGISTER(
-      /*ptr0:*/old_path, /*ptr1:*/old_dentry,
-      /*ptr2:*/new_path, /*ptr3:*/new_dentry,
-      /*ptr4:*/dget(new_dentry->d_sb->s_root),
-      /*fakecallback:*/wrapped_callback);
-}
-#endif
-
 /* --- /proc/rmtimeup-event */
 
 /** Constants for rmtimeup_event.value */
@@ -751,12 +689,23 @@ DEFINE_ANCHOR(int, vfs_link,
               struct inode *dir,
               struct dentry *new_dentry VFSMNT_TARG(new_mnt)) {
   int prevret;
+  struct dentry *old_dentry_parent = old_dentry->d_parent;
+  struct dentry *new_dentry_parent = new_dentry->d_parent;
+  struct timespec now;
+
   PRINT_DEBUG("my vfs_link called\n%s", "");
   prevret = vfs_link__anchor.prev(
       old_dentry VFSMNT_ARG(old_mnt), dir, new_dentry VFSMNT_ARG(new_mnt));
   PRINT_DEBUG("my vfs_link prevret=%d\n", prevret);
+  if (prevret == 0) {
+    now = current_fs_time(old_dentry_parent->d_sb);
+    update_mtimes(old_dentry_parent, now,
+        /*nolock1:*/old_dentry_parent, /*nolock2:*/new_dentry_parent);
+    update_mtimes(new_dentry_parent, now,
+        /*nolock1:*/old_dentry_parent, /*nolock2:*/new_dentry_parent);
+    notify_rmtimeup_events(EVENT_FILES_CHANGED);
+  }
   return prevret;  
-  /* !! implement this */
 }
 
 DEFINE_ANCHOR(int, vfs_unlink,
@@ -776,11 +725,20 @@ DEFINE_ANCHOR(int, vfs_setxattr,
               size_t size, int flags FILE_TARG(filp)) {
   /* corresponding command: setfattr -n user.foo -v bar t1.jpg */
   int prevret;
+  struct timespec now;
+  struct dentry *dentry_parent = dentry->d_parent;
+
   PRINT_DEBUG("my vfs_setxattr called\n%s", "");
   prevret = vfs_setxattr__anchor.prev(dentry VFSMNT_ARG(mnt), name, value,
       size, flags VFSMNT_ARG(filp));
   PRINT_DEBUG("my vfs_setxattr prevret=%d\n", prevret);
-  /* !! implement this */
+  if (prevret == 0 && S_ISREG(dentry->d_inode->i_mode) &&
+      0 == strncmp(name, "user.", 5)) {  /* caller has done copy_from_user */
+    now = current_fs_time(dentry_parent->d_sb);
+    update_mtimes(dentry_parent, now,
+        /*nolock1:*/dentry_parent, /*nolock2:*/dentry_parent);
+    notify_rmtimeup_events(EVENT_FILES_CHANGED);
+  }
   return prevret;
 }
 
@@ -789,13 +747,19 @@ DEFINE_ANCHOR(int, vfs_removexattr,
               char *name FILE_TARG(filp)) {
   /* corresponding command: setfattr -x user.foo t1.jpg */
   int prevret;
+  struct timespec now;
+  struct dentry *dentry_parent = dentry->d_parent;
+
   PRINT_DEBUG("my vfs_removexattr called\n%s", "");
   prevret = vfs_removexattr__anchor.prev(dentry VFSMNT_ARG(mnt),
       name VFSMNT_ARG(filp));
   PRINT_DEBUG("my vfs_removexattr prevret=%d\n", prevret);
-  if (prevret == 0) {
+  if (prevret == 0 && S_ISREG(dentry->d_inode->i_mode) &&
+      0 == strncmp(name, "user.", 5)) {  /* caller has done copy_from_user */
+    now = current_fs_time(dentry_parent->d_sb);
+    update_mtimes(dentry_parent, now,
+        /*nolock1:*/dentry_parent, /*nolock2:*/dentry_parent);
     notify_rmtimeup_events(EVENT_FILES_CHANGED);
-    /* !! implement this */
   }
   return prevret; 
 }
@@ -900,7 +864,7 @@ static int __init init_rmtimeup(void) {
 
   p = create_proc_entry("rmtimeup-event", 0444, NULL);  /* for all users */
   if (!p) { ret = -ENOMEM; goto done; }
-  p->owner = THIS_MODULE;  /* !! add as log prefix */
+  p->owner = THIS_MODULE;
   SETPROC_OPS(p, rmtimeup_event_ops);
 
   ret = 0;
