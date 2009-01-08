@@ -173,7 +173,10 @@ static __always_inline char has_dentry_tagdb(struct super_block *sb,
   return 1;
 }
 
-/** Updates mtime of dentry, dentry->parent etc., up to dentry->d_sb->s_root. */
+/** Updates mtime of dentry, dentry->parent etc., up to dentry->d_sb->s_root.
+ * The caller should make sure that has_dentry_tagdb(d->d_sb, nolock1, nolock2)
+ * returns true.
+ */
 static void update_mtimes(struct dentry *dentry,
     struct timespec now,
     struct dentry *nolock1, struct dentry *nolock2) {
@@ -182,11 +185,9 @@ static void update_mtimes(struct dentry *dentry,
   struct inode *inode;
   char do_lock;
   int error;
-  char have_tagdb = has_dentry_tagdb(dentry->d_sb, nolock1, nolock2);
 
-  PRINT_DEBUG("update_mtime dentry=%p now=%ld have_tagdb=%d\n",
-      dentry, (long)now.tv_sec, have_tagdb);
-  if (!have_tagdb) return;  /* Imp: optimize, don't even precompute */
+  PRINT_DEBUG("update_mtime dentry=%p now=%ld\n",
+      dentry, (long)now.tv_sec);
   newattrs.ia_valid = ATTR_MTIME;
   newattrs.ia_mtime = now;
   while (1) {
@@ -596,7 +597,8 @@ DEFINE_ANCHOR(int, vfs_rename,
       old_dir, old_dentry VFSMNT_ARG(old_mnt),
       new_dir, new_dentry VFSMNT_ARG(new_mnt));
   PRINT_DEBUG("my vfs_rename prevret=%d\n", prevret);
-  if (prevret == 0 && !had_root) {
+  if (prevret == 0 && !had_root &&
+      has_dentry_tagdb(new_dentry_parent->d_sb, nolock1, nolock2)) {
     /* At this point, get_path(old_dentry) and get_path(new_dentry) don't
      * give the same pathnames as what they gave before the
      * vfs_rename__anchor.prev call, but their parents are still the same
@@ -660,7 +662,9 @@ DEFINE_ANCHOR(int, vfs_link,
   prevret = vfs_link__anchor.prev(
       old_dentry VFSMNT_ARG(old_mnt), dir, new_dentry VFSMNT_ARG(new_mnt));
   PRINT_DEBUG("my vfs_link prevret=%d\n", prevret);
-  if (prevret == 0) {
+  if (prevret == 0 &&
+      has_dentry_tagdb(new_dentry_parent->d_sb,
+          /*nolock1:*/new_dentry_parent, /*nolock2:*/new_dentry_parent)) {
     now = current_fs_time(old_dentry_parent->d_sb);
     update_mtimes(old_dentry_parent, now,
         /*nolock1:*/old_dentry_parent, /*nolock2:*/new_dentry_parent);
@@ -681,8 +685,14 @@ DEFINE_ANCHOR(int, vfs_unlink,
   PRINT_DEBUG("my vfs_unlink called\n%s", "");
   prevret = vfs_unlink__anchor.prev(dir, dentry VFSMNT_ARG(mnt));
   PRINT_DEBUG("my vfs_unlink prevret=%d\n", prevret);
-  if (prevret == 0) {
+  if (prevret == 0 &&
+      has_dentry_tagdb(dentry_parent->d_sb,
+          /*nolock1:*/dentry_parent, /*nolock2:*/dentry_parent)) {
     now = current_fs_time(dentry_parent->d_sb);
+    /* TODO: improve speed by omitting update_mtimes if an uninteresting file
+     * is being removed (i.e. nlink == 1, no user.* tags). Also do this
+     * optimization for the other anchor functions.
+     */
     update_mtimes(dentry_parent, now,
         /*nolock1:*/dentry_parent, /*nolock2:*/dentry_parent);
     notify_rmtimeup_events(EVENT_FILES_CHANGED);
@@ -704,7 +714,9 @@ DEFINE_ANCHOR(int, vfs_setxattr,
       size, flags VFSMNT_ARG(filp));
   PRINT_DEBUG("my vfs_setxattr prevret=%d\n", prevret);
   if (prevret == 0 && S_ISREG(dentry->d_inode->i_mode) &&
-      0 == strncmp(name, "user.", 5)) {  /* caller has done copy_from_user */
+      0 == strncmp(name, "user.", 5) &&  /* caller has done copy_from_user */
+      has_dentry_tagdb(dentry_parent->d_sb,
+          /*nolock1:*/dentry_parent, /*nolock2:*/dentry_parent)) {
     now = current_fs_time(dentry_parent->d_sb);
     update_mtimes(dentry_parent, now,
         /*nolock1:*/dentry_parent, /*nolock2:*/dentry_parent);
@@ -726,7 +738,9 @@ DEFINE_ANCHOR(int, vfs_removexattr,
       name VFSMNT_ARG(filp));
   PRINT_DEBUG("my vfs_removexattr prevret=%d\n", prevret);
   if (prevret == 0 && S_ISREG(dentry->d_inode->i_mode) &&
-      0 == strncmp(name, "user.", 5)) {  /* caller has done copy_from_user */
+      0 == strncmp(name, "user.", 5) &&  /* caller has done copy_from_user */
+      has_dentry_tagdb(dentry_parent->d_sb,
+          /*nolock1:*/dentry_parent, /*nolock2:*/dentry_parent)) {
     now = current_fs_time(dentry_parent->d_sb);
     update_mtimes(dentry_parent, now,
         /*nolock1:*/dentry_parent, /*nolock2:*/dentry_parent);
