@@ -62,6 +62,7 @@ mkdir -p "$TARGETDIR/pysqlite2"
 cp "$TMPDIR/pysqlite/build"/lib.*/pysqlite2/{_sqlite.so,__init__.py,dbapi2.py} "$TARGETDIR/pysqlite2"
 strip "$TARGETDIR/pysqlite2/_sqlite.so"
 # This also creates $TARGETDIR/pysqlite2/*.pyc
-PYTHONPATH="$TARGETDIR:$PYTHONPATH" python2.4 "$TMPDIR/pysqlite/pysqlite2/test/dbapi.py"
+cp "$TMPDIR/pysqlite/pysqlite2/test/dbapi.py" "$TARGETDIR/pysqlite2/test_dbapi.py"
+PYTHONPATH="$TARGETDIR:$PYTHONPATH" python2.4 "$TARGETDIR/pysqlite2/test_dbapi.py"
 
 : All OK, see "$TARGETDIR/pysqlite2"
