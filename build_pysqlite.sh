@@ -5,6 +5,10 @@
 #
 # This shell script downloads SQLite and pysqlite, and builds pysqlite to
 # py.local with an FTS3-enabled SQLite statically linked to it.
+#
+# Prepare with:
+#
+#   $ apt-get install python2.4 python2.4-dev make gcc libc6-dev
 
 # A Python source tree root.
 TARGETDIR="${TARGETDIR:-py.local}"
