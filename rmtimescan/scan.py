@@ -445,7 +445,6 @@ class Scanner(object):
           # Don't descend to dir, because it has not changed since last scan.
           # This condition assumes that rmtimeup.ko is loaded.
           # TODO: Make the scanner work (slowly) without rmtimeup.ko.
-          # !! scan dir if parent of dir has been renamed
           rows = tuple(cursor.execute(
               'SELECT dir FROM dirs INDEXED BY dirs_ino WHERE ino=?',
               (st.st_ino,)))
@@ -545,7 +544,13 @@ class Scanner(object):
           subdirs_gone = sorted(
               set(['%s/%s' % (dir, entry) for entry in rows[0][0].split('/')])
               .difference(subdirs))
-          # TODO: don't remember the whole list, DELETE when going up
+          # TODO: use less memory by putting dirs_to_delete to the database
+          #       (or setting mtime=None etc.)
+          # We must defer deletion after scanning, because otherwise
+          # after the move `mv /mnt/mini/{sub/shallow,other/deep}' not all
+          # subdirectories would be scanned, because
+          # `SELECT dir FROM dirs INDEXED BY dirs_ino WHERE ino=?' above needs
+          # the old rows.
           dirs_to_delete.extend(subdirs_gone)
         else:
           old_entrylist = ()
