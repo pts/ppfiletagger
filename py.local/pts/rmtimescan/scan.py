@@ -20,6 +20,7 @@ import logging
 import math
 import os
 import pysqlite2.dbapi2 as sqlite
+import select
 import stat
 import time
 import xattr
@@ -410,10 +411,12 @@ class RootInfo(object):
             (dir_to_delete + '/', dir_to_delete + succ_slash))
         delete_count += cursor.rowcount
 
-      cursor.execute("UPDATE lastscans SET at=? WHERE which=''", (now,))
+      lastscans_at = now_floor - 1  # In case we restart.
+      cursor.execute("UPDATE lastscans SET at=? WHERE which=''",
+          (lastscans_at,))
       if not cursor.rowcount:
         cursor.execute('INSERT INTO lastscans (which, at) VALUES (?, ?)',
-            ('', now))
+            ('', lastscans_at))
       self.db.commit()
     finally:
       cursor.close()
@@ -442,6 +445,8 @@ class Scanner(object):
     self.event_fd = None
     # Timestamp of last scan, or None.
     self.last_scan_at = None
+    # Do we need a new scan because of timestamp rounding differences?
+    self.need_new_scan = True
 
   def CloseDBs(self):
     # Close old roots in case a different filesystem was mounted.
@@ -637,26 +642,42 @@ class Scanner(object):
     # Round the time to millisecond precision in order to not to loose
     # precision with SQLite.
     while True:
-      now = (512 + int(time.time() * 1024)) / 1024.0
+      now = int(time.time() * 1024) / 1024.0
       if now != self.last_scan_at: break
       time.sleep(0.001)
+    self.need_new_scan = False
     for scan_root_dir in scan_root_dirs:
       root = self.roots[scan_root_dir]
       got_now = tuple(root.db.execute("SELECT ?", (now,)))
       assert ((now,),) == got_now, ('timestamp mismatch: sent=%r, got=%r' %
           (now, got_now))
-      root.ScanRootDir(now=now)
+      if root.ScanRootDir(now=now): self.need_new_scan = True
     self.last_scan_at = now
 
   def RunMainLoop(self):
-    """Infinite main loop waitingg for changes and processing them."""
+    """Infinite main loop waiting for changes and processing them."""
     logging.info('starting main loop')
     while True:
       # We close the tagdbs so the filesystems remain unmountable.
       self.CloseDBs()
-      logging.info('waiting for change bits on %r' % self.EVENT_FILENAME)
-      bits = ord(os.read(self.event_fd, 1))  # A blocking read.
+      logging.info('waiting for change bits on event=%r need_new_scan=%r' %
+          (self.EVENT_FILENAME, self.need_new_scan))
+      if self.need_new_scan:
+        sleep_amount = math.floor(self.last_scan_at) + 1 - time.time()
+        if sleep_amount > 0:
+          # Imp: ensure that we don't sleep too little.
+          rlist = select.select((self.event_fd,), (), (), sleep_amount)[0]
+        else:
+          rlist = True
+      else:
+        rlist = True
+
+      if rlist:
+        bits = ord(os.read(self.event_fd, 1))  # A blocking read.
+      else:
+        bits = 0x1
       logging.info('got change bits=0x%x' % bits)
+
       if 0 != (bits & 2):  # EVENT_MOUNTS_CHANGED
         self.OpenTagDBs(self.ParseMounts())
       if 0 != (bits & 1):  # EVENT_FILES_CHANGED
