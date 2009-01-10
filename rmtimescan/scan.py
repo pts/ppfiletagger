@@ -5,6 +5,14 @@
 #   loaded.
 # * The scanner should not be run as root (to restrict the effects of
 #   security vulnerabilities).
+#
+# TODO: Reduce the amount of unnecessary stats, listdirs, and xattrs.get_alls.
+#       (also modify rmtimeup).
+# TODO: Reduce the amount of database UPDATEs (is a SELECT before an UPDATE
+#       really faster?)
+# TODO: Add a modified-file-list to rmtimeup, and use mtime-based scanning only
+#       as a safety fallback. This will speed up response time.
+# TODO: add INDEXED BY to each query.
 
 import errno
 import logging
@@ -19,6 +27,42 @@ def IsSubPath(a, ab):
   if not isinstance(a, str): raise TypeError
   if not isinstance(ab, str): raise TypeError
   return len(ab) > len(a) and ab[len(a)] == '/' and ab.startswith(a)
+
+
+def EntryOf(filename):
+  """Return the last name of component a relative ('.' or './*') filename."""
+  try:
+    return filename[filename.rindex('/') + 1:]
+  except ValueError:
+    return filename
+
+
+class StackEntry(object):
+  """An entry on the Scanner.ScanRootDir stack."""
+
+  __slots__ = ['dir', 'sibling_entries', 'up']
+
+  def __init__(self, dir, sibling_entries=(), up=False):
+    # String holding a directory name.
+    self.dir = str(dir)
+    # A boolean indicating whether we've already descended to the children of
+    # this entry.
+    self.up = bool(up)
+    # A list holding names of directory entries in the parent of self.dir.
+    # Only those entries are listed which (recursively) contain files with
+    # xattrs.
+    self.sibling_entries = list(sibling_entries)
+
+  def __repr__(self):
+    buf = ['StackEntry(dir=', repr(self.dir)]
+    if self.sibling_entries:
+      buf.append(', sibling_entries=')
+      buf.append(repr(self.sibling_entries))
+    if self.up:
+      buf.append(', up=True')
+    buf.append(')')
+    return ''.join(buf)
+
 
 class Scanner(object):
   """Object which scans filesystems with tags recursively."""
@@ -208,19 +252,7 @@ class Scanner(object):
     try:
       # TODO: add indexes
       # TODO: add fts3
-      # !! get rid of multilinks
-      # List of files with multiple (hard) links.
-      # Strictly speaking, only fields (ino, dir, entry) are necessary. The
-      # others are for debugging.
-      db.execute('CREATE TABLE multilinks (ino INTEGER NOT NULL, '
-                 'dir TEXT NOT NULL, entry TEXT NOT NULL, '
-                 'nlink INTEGER NOT NULL, ctime INTEGER NOT NULL, '
-                 'mtime INTEGER NOT NULL, size INTEGER NOT NULL, '
-                 'at FLOAT NOT NULL, '
-                 'UNIQUE(dir, entry))')
-      # ino is not unique, a file can have multiple links.
-      db.execute('CREATE INDEX multilinks_ino ON multilinks (ino)')
-      db.execute('CREATE INDEX multilinks_at ON multilinks (at)')
+      # TODO: remember added and last-modified timestamps
       # List of files with user.* extended attributes.
       # We could normalize this table to link to inodeattrs (ino, attr, value). 
       db.execute('CREATE TABLE fileattrs (ino INTEGER NOT NULL, '
@@ -228,26 +260,37 @@ class Scanner(object):
                  'nlink INTEGER NOT NULL, ctime INTEGER NOT NULL, '
                  'mtime INTEGER NOT NULL, size INTEGER NOT NULL, '
                  'at FLOAT NOT NULL, '
-                 'attr TEXT NOT NULL, value TEXT NOT NULL, '
-                 'UNIQUE(dir, entry))')
+                 'xattr TEXT NOT NULL, value TEXT NOT NULL)')
+      # Field ino is not unique, a file can have multiple links.
+      db.execute('CREATE INDEX fileattrs_nxattr ON fileattrs '
+          '(dir, entry, xattr)')
       db.execute('CREATE INDEX fileattrs_ino ON fileattrs (ino)')
       db.execute('CREATE INDEX fileattrs_at ON fileattrs (at)')
+      # Non-root directories of name dir + '/' + entry.
+      db.execute('CREATE TABLE dirs ('
+                 'dir TEXT NOT NULL, entrylist TEXT NOT NULL, '
+                 'at FLOAT NOT NULL)')
+      db.execute('CREATE UNIQUE INDEX dirs_dir ON dirs (dir)')
+      # !! EXPLAIN SELECT * FROM fileattrs INDEXED BY fileattrs_at WHERE at>5 AND at<6
+      db.execute('CREATE TABLE lastscans (which TEXT PRIMARY KEY NOT NULL, '
+                 'at FLOAT)')
     except sqlite.OperationalError:
       db.rollback()
-      db.execute('DROP TABLE IF EXISTS multilinks')
+      db.execute('DROP TABLE IF EXISTS lastscans')
+      db.execute('DROP TABLE IF EXISTS dirs')
       db.execute('DROP TABLE IF EXISTS fileattrs')
       raise
     db.commit()
 
   def UpdateOrInsertManyByName(self, db, table, dicts,
       update_count=0, insert_count=0, cursor=None):
-    """Update or insert many rows by (dir, entry).
+    """Update or insert many rows by (dir, entry, xattr).
 
     Args:
       db: An SQLite connection.
       table: Name of the table.
       dicts: Sequence of dicts, each with the same key, each having the
-        same string keys, including 'dir' and 'entry'.
+        same string keys, including 'dir', 'entry' and 'xattr'.
     Returns:
       (update_count, insert_count)
     """
@@ -257,19 +300,25 @@ class Scanner(object):
       if keys is None:
         keys = sorted(adict)
         assert 'dir' in keys
-        assert 'entry' in keys
+        has_entry = 'entry' in keys
+        has_xattr = 'xattr' in keys
         update_keys = list(keys)
         update_keys.remove('dir')
-        update_keys.remove('entry')
+        if has_entry: update_keys.remove('entry')
+        if has_xattr: update_keys.remove('xattr')
         assert update_keys
         update_assignments = ', '.join(['%s=:%s' % (key, key)
             for key in update_keys])
         if cursor is None:
           cursor = db.cursor()
           do_close_cursor = True
+        and_entry = ''
+        if has_entry: and_entry = ' AND entry=:entry'
+        and_xattr = ''
+        if has_xattr: and_xattr = ' AND xattr=:xattr'
         # We could escape table or field names, this would be too much work.
-        update_sql = ('UPDATE %s SET %s WHERE dir=:dir AND entry=:entry'
-            % (table, update_assignments))
+        update_sql = ('UPDATE %s SET %s WHERE dir=:dir%s%s' %
+            (table, update_assignments, and_entry, and_xattr))
         insert_sql = 'INSERT INTO %s (%s) VALUES (%s)' % (
             (table, ', '.join(keys), ', '.join([':' + key for key in keys])))
       else:
@@ -281,6 +330,7 @@ class Scanner(object):
         cursor.execute(insert_sql, adict)
         insert_count += 1
       else:
+        # Increase even if no column changed.
         update_count += 1
         assert cursor.rowcount == 1
     if do_close_cursor:
@@ -289,40 +339,97 @@ class Scanner(object):
 
   def ScanRootDir(self, db, root_dir, now):
     logging.info('scanning root_dir=%r now=%r' % (root_dir, now))
+    succ_slash = chr(ord('/') + 1)
     update_count = 0
     insert_count = 0
     delete_count = 0
     cursor = db.cursor()
-    # TODO: don't delete everything immediately.
-    cursor.execute('DELETE FROM multilinks WHERE at=?', (now,))
-    delete_count += cursor.rowcount
-    cursor.execute('DELETE FROM fileattrs WHERE at=?', (now,))
-    delete_count += cursor.rowcount
+    ats = tuple(cursor.execute("SELECT at FROM lastscans WHERE which=''"))
+    if ats:
+      prev_scan_at = ats[0][0]
+      logging.info('prev scan at=%r' % prev_scan_at)
+    else:
+      prev_scan_at = float('-inf')
+      logging.info('no prev scan')
+
     # Do an inorder scan (files before subdirs), entries alphanumerically.
     try:
-      todo_dirs = [root_dir]
+      stack = [StackEntry('.')]
       subdirs = []
-      multilinks = []
+      fileattrs = []
       stat_count = 0
       dir_count = 0
-      while todo_dirs:
-        dir = todo_dirs.pop()
+      while stack:
+        #print 'STACK', stack
+        stack_entry = stack[-1]
+        dir = stack_entry.dir
+        sibling_entries = stack_entry.sibling_entries
+
+        if stack_entry.up:
+          if len(stack) >= 2:
+            if IsSubPath(stack[-2].dir, dir):
+              assert stack[-2].up, 'stack prev must go up'
+              if sibling_entries:
+                upentry = EntryOf(stack[-2].dir)
+                if upentry not in stack[-2].sibling_entries:
+                  # If we have xattrs (i.e. sibling_entries is true), propagate
+                  # that to our parent.
+                  stack[-2].sibling_entries.append(upentry)
+                adict = {'dir': stack[-2].dir, 'at': now,
+                         'entrylist': '/'.join(sibling_entries)}
+                cursor.execute('UPDATE dirs SET entrylist=:entrylist, at=:at '
+                    'WHERE dir=:dir', adict)
+                if cursor.rowcount:
+                  update_count += 1
+                else:
+                  cursor.execute('INSERT INTO dirs (dir, entrylist, at) '
+                      'VALUES (:dir, :entrylist, :at)', adict)                  
+                  insert_count += 1
+              else:
+                cursor.execute('DELETE FROM dirs WHERE dir=?',
+                    (stack[-2].dir,))
+                delete_count += cursor.rowcount
+              #print (dir, stack[-2].dir, sibling_entries, stack[-2].sibling_entries)
+            else:  # stack[-2] is our sibling.
+              prev_updir = stack[-2].dir
+              prev_updir = prev_updir[: prev_updir.rindex('/') + 1]
+              assert dir.startswith(prev_updir), (
+                  'bad stack neighbour dirs: prev=%r current=%r' %
+                  (stack[-2].dir, dir))
+              assert not stack[-2].up, 'stack prev must not go up'
+              if stack[-2].sibling_entries:
+                stack[-2].sibling_entries.extend(sibling_entries)
+              else:
+                stack[-2].sibling_entries = sibling_entries
+
+          stack.pop()
+          continue
+
+        if dir != '.':
+          assert dir[1] == '/'
+          fsdir = root_dir + dir[1:]
+        else:
+          fsdir = root_dir
+
         dir_count += 1
+
         try:
-          entries = sorted(os.listdir(dir))
+          entries = sorted(os.listdir(fsdir))
         except OSError, e:
           logging.info('cannot list dir: %s' % e)
-          continue  # !! DELET from db
+          entries = ()
         #print (dir, entries)
         del subdirs[:]
-        del multilinks[:]
+        del fileattrs[:]
+        had_xattrs = False
         for entry in entries:
-          if dir.endswith('/'):  # '/'
-            fn = dir + entry
+          fn = '%s/%s' % (dir, entry)
+          if root_dir.endswith('/'):  # Usually when root_dir == '/'
+            fsfn = root_dir + fn[2:]
           else:
-            fn = '%s/%s' % (dir, entry)
+            fsfn = root_dir + fn[1:]
           if dir_count == 1 and entry.startswith(self.TAGDB_NAME):
-            # Ignore the tagdb file
+            # Ignore the tagdb file.
             continue
 
           stat_count += 1
@@ -331,43 +438,84 @@ class Scanner(object):
                 'update_count=%d insert_count=%d delete_count=%d' %
                 (fn, update_count, insert_count, delete_count))
           try:
-            st = os.stat(fn)
+            st = os.stat(fsfn)
           except OSError, e:
             # str(e) contains the filename as well
             logging.info('cannot stat: %s' % e)
             st = None
 
           if st and stat.S_ISREG(st.st_mode):
-            xattr_names = xattr.list(fn, namespace=xattr.NS_USER)
-            if xattr_names:
+            try:
+              xattrs = xattr.get_all(fsfn, namespace=xattr.NS_USER)
+            except EnvironmentError, e:
+              logging.info('cannot list xattrs: %s' % e)
+              xattrs = ()
+            if st.st_nlink > 1 and not xattrs:
+              # Add files with multiple hard links but without xattrs to the
+              # database in case an xattr gets added to one of them later.
+              xattrs.append(('', ''))
+            if xattrs:
+              had_xattrs = True
+              adict = {
+                  'at': now,
+                  'ino': int(st.st_ino), 'dir': dir, 'entry': entry,
+                  'nlink': int(st.st_nlink), 'size': int(st.st_size),
+                  'ctime': int(st.st_ctime), 'mtime': int(st.st_mtime)}
+              for xattr_name, value in xattrs:
+                adict2 = dict(adict)
+                adict2['xattr'] = xattr_name
+                adict2['value'] = value
+                fileattrs.append(adict2)
               if st.st_nlink > 1:
-                adict = {
-                    'at': now,
-                    'ino': int(st.st_ino), 'dir': dir, 'entry': entry,
-                    'nlink': int(st.st_nlink), 'size': int(st.st_size),
-                    'ctime': int(st.st_ctime), 'mtime': int(st.st_mtime)}
                 # !! update all files with the same ino
-                multilinks.append(dict(adict))
+                pass
           elif st and stat.S_ISDIR(st.st_mode):
             subdirs.append(fn)
-        if multilinks:
+        if fileattrs:
           update_count, insert_count = self.UpdateOrInsertManyByName(
-              db=db, table='multilinks', dicts=multilinks, cursor=cursor,
+              db=db, table='fileattrs', dicts=fileattrs, cursor=cursor,
               update_count=update_count, insert_count=insert_count)
-        # Add all subdirectories.
-        todo_dirs.extend(reversed(subdirs))
 
-      # !! keep files in dirs not scanned (recursively)
-      cursor.execute('DELETE FROM multilinks WHERE at<?', (now,))
-      delete_count += cursor.rowcount
-      cursor.execute('DELETE FROM multilinks WHERE at>?', (now,))
-      delete_count += cursor.rowcount
+        cursor.execute('DELETE FROM fileattrs INDEXED BY fileattrs_nxattr '
+            'WHERE dir=? AND at<>?', (dir, now))
+        delete_count += cursor.rowcount
 
-      cursor.execute('DELETE FROM fileattrs WHERE at<?', (now,))
-      delete_count += cursor.rowcount
-      cursor.execute('DELETE FROM fileattrs WHERE at>?', (now,))
-      delete_count += cursor.rowcount
+        # Delete subdirs of dir which are no longer present on the filesystem
+        # from table dirs.        
+        rows = list(cursor.execute('SELECT entrylist FROM dirs WHERE dir=?',
+            (dir,)))
+        if rows and rows[0][0]:
+          subdirs_deleted = sorted(
+              set(['%s/%s' % (dir, entry) for entry in rows[0][0].split('/')])
+              .difference(subdirs))
+          for dir_deleted in subdirs_deleted:
+            # TODO: test this by removing /mnt/mini/other/deep/a  (or even one level deeper)
+            #       mkdir -p /mnt/mini/other/deep/a/b && echo c.data >/mnt/mini/other/deep/a/b/c && setfattr -n user.tags -v c.tag /mnt/mini/other/deep/a/b/c
+            cursor.execute('DELETE FROM dirs WHERE dir=?', (dir_deleted,))
+            delete_count += cursor.rowcount
+            cursor.execute('DELETE FROM dirs WHERE dir>=? AND dir<?',
+                (dir_deleted + '/', dir_deleted + succ_slash))
+            delete_count += cursor.rowcount
+            cursor.execute('DELETE FROM fileattrs INDEXED BY fileattrs_nxattr '
+                'WHERE dir=?', (dir_deleted,))
+            delete_count += cursor.rowcount
+            cursor.execute('DELETE FROM fileattrs INDEXED BY fileattrs_nxattr '
+                'WHERE dir>=? AND dir<?',
+                (dir_deleted + '/', dir_deleted + succ_slash))
+            delete_count += cursor.rowcount
+        else:
+          old_entrylist = ()
 
+        if had_xattrs: sibling_entries.append(EntryOf(dir))
+        stack_entry.up = True
+        # Scan all subdirectories.
+        stack.extend(reversed([StackEntry(dir) for dir in subdirs]))
+
+      # !! use now-1 etc. in case the dir was modified in the same second.
+      cursor.execute("UPDATE lastscans SET at=? WHERE which=''", (now,))
+      if not cursor.rowcount:
+        cursor.execute('INSERT INTO lastscans (which, at) VALUES (?, ?)',
+            ('', now))
       db.commit()
     finally:
       cursor.close()
