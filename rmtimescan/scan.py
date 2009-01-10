@@ -41,21 +41,26 @@ def EntryOf(filename):
 class StackEntry(object):
   """An entry on the Scanner.ScanRootDir stack."""
 
-  __slots__ = ['dir', 'sibling_entries', 'up']
+  __slots__ = ['dir', 'sibling_entries', 'up', 'ino']
 
-  def __init__(self, dir, sibling_entries=(), up=False):
+  def __init__(self, dir, ino=None, sibling_entries=(), up=False):
     # String holding a directory name.
     self.dir = str(dir)
     # A boolean indicating whether we've already descended to the children of
     # this entry.
     self.up = bool(up)
+    # Inode number of self.dir, or None if not known yet.
+    if ino is None:
+      self.ino = None
+    else:
+      self.ino = int(ino)
     # A list holding names of directory entries in the parent of self.dir.
     # Only those entries are listed which (recursively) contain files with
     # xattrs.
     self.sibling_entries = list(sibling_entries)
 
   def __repr__(self):
-    buf = ['StackEntry(dir=', repr(self.dir)]
+    buf = ['StackEntry(dir=', repr(self.dir), ', ino=', repr(self.ino)]
     if self.sibling_entries:
       buf.append(', sibling_entries=')
       buf.append(repr(self.sibling_entries))
@@ -268,10 +273,11 @@ class Scanner(object):
       db.execute('CREATE INDEX fileattrs_ino ON fileattrs (ino)')
       db.execute('CREATE INDEX fileattrs_at ON fileattrs (at)')
       # Non-root directories of name dir + '/' + entry.
-      db.execute('CREATE TABLE dirs ('
+      db.execute('CREATE TABLE dirs (ino INTEGER NOT NULL, '
                  'dir TEXT NOT NULL, entrylist TEXT NOT NULL, '
                  'at FLOAT NOT NULL)')
       db.execute('CREATE UNIQUE INDEX dirs_dir ON dirs (dir)')
+      db.execute('CREATE UNIQUE INDEX dirs_ino ON dirs (ino)')
       # !! EXPLAIN SELECT * FROM fileattrs INDEXED BY fileattrs_at WHERE at>5 AND at<6
       db.execute('CREATE TABLE lastscans (which TEXT PRIMARY KEY NOT NULL, '
                  'at FLOAT)')
@@ -337,6 +343,26 @@ class Scanner(object):
     if do_close_cursor: cursor.close()
     return (update_count, insert_count)
 
+  def UpdateDirs(self, cursor, adict, do_delete,
+      update_count=0, insert_count=0, delete_count=0):
+    assert adict['ino'] is not None
+    if do_delete:
+      cursor.execute('DELETE FROM dirs WHERE dir=:dir', adict)
+      delete_count += cursor.rowcount
+    else:
+      cursor.execute('DELETE FROM dirs INDEXED BY dirs_ino '
+          'WHERE ino=:ino AND dir<>:dir', adict)
+      cursor.execute('UPDATE dirs INDEXED BY dirs_dir '
+          'SET entrylist=:entrylist, at=:at, '
+          'ino=:ino WHERE dir=:dir', adict)
+      if cursor.rowcount:
+        update_count += 1
+      else:
+        cursor.execute('INSERT INTO dirs (dir, entrylist, at, ino) '
+            'VALUES (:dir, :entrylist, :at, :ino)', adict)
+        insert_count += 1
+    return update_count, insert_count, delete_count
+
   def ScanRootDir(self, db, root_dir, now):
     logging.info('scanning root_dir=%r now=%r' % (root_dir, now))
     succ_slash = chr(ord('/') + 1)
@@ -354,15 +380,16 @@ class Scanner(object):
     else:
       prev_scan_at = prev_scan_floor = float('-inf')
       logging.info('no prev scan')
+    stack = [StackEntry('.', ino=None)]
+    subdirs = []
+    fileattrs = []
+    stat_count = 0
+    dirscan_count = 0
+    dirskip_count = 0
+    dirs_to_delete = []
 
     # Do an inorder scan (files before subdirs), entries alphanumerically.
     try:
-      stack = [StackEntry('.')]
-      subdirs = []
-      fileattrs = []
-      stat_count = 0
-      dirscan_count = 0
-      dirskip_count = 0
       while stack:
         #print 'STACK', stack
         stack_entry = stack[-1]
@@ -379,21 +406,13 @@ class Scanner(object):
                   # If we have xattrs (i.e. sibling_entries is true), propagate
                   # that to our parent.
                   stack[-2].sibling_entries.append(upentry)
-                adict = {'dir': stack[-2].dir, 'at': now,
-                         'entrylist': '/'.join(sibling_entries)}
-                cursor.execute('UPDATE dirs SET entrylist=:entrylist, at=:at '
-                    'WHERE dir=:dir', adict)
-                if cursor.rowcount:
-                  update_count += 1
-                else:
-                  cursor.execute('INSERT INTO dirs (dir, entrylist, at) '
-                      'VALUES (:dir, :entrylist, :at)', adict)                  
-                  insert_count += 1
-              else:
-                cursor.execute('DELETE FROM dirs WHERE dir=?',
-                    (stack[-2].dir,))
-                delete_count += cursor.rowcount
-              #print (dir, stack[-2].dir, sibling_entries, stack[-2].sibling_entries)
+              adict = {'dir': stack[-2].dir, 'at': now,
+                       'ino': stack[-2].ino,
+                       'entrylist': '/'.join(sibling_entries)}
+              update_count, insert_count, delete_count = self.UpdateDirs(
+                  cursor=cursor, adict=adict, do_delete=(not sibling_entries),
+                  update_count=update_count, insert_count=insert_count,
+                  delete_count=delete_count)
             else:  # stack[-2] is our sibling.
               prev_updir = stack[-2].dir
               prev_updir = prev_updir[: prev_updir.rindex('/') + 1]
@@ -417,6 +436,7 @@ class Scanner(object):
 
         try:
           st = os.stat(fsdir)
+          stack_entry.ino = st.st_ino
         except OSError:
           logging.info('cannot list dir: %s' % e)
           st = None
@@ -426,19 +446,24 @@ class Scanner(object):
           # This condition assumes that rmtimeup.ko is loaded.
           # TODO: Make the scanner work (slowly) without rmtimeup.ko.
           # !! scan dir if parent of dir has been renamed
-          if (tuple(cursor.execute(
-              'SELECT 1 FROM fileattrs INDEXED BY fileattrs_nxattr '
-              'WHERE dir=? LIMIT 1', (dir,))) or
-              tuple(cursor.execute(
-              'SELECT 1 FROM fileattrs INDEXED BY fileattrs_nxattr '
-              'WHERE dir>=? AND dir<? LIMIT 1',
-              (dir + '/', dir + succ_slash)))):
-            # If db contains xattrs in dir (recursively), add dir to its
-            # sibling_entries.
-            sibling_entries.append(EntryOf(dir))
-          stack_entry.up = True
-          dirskip_count += 1
-          continue
+          rows = tuple(cursor.execute(
+              'SELECT dir FROM dirs INDEXED BY dirs_ino WHERE ino=?',
+              (st.st_ino,)))
+          assert len(rows) < 2
+          # We have the `rows[0][0] == dir' check in case dir has been
+          # renamed since the last scan. If so, the condition is false,
+          # and we'll rescan it.
+          # TODO: just rename in the database instead of rescanning.
+          if not rows or rows[0][0] == dir:
+            logging.info('skip---- dir=%r dirscan_count=%d rows=%r' %
+                (dir, dirscan_count, rows))
+            if rows:
+              # If db contains xattrs in dir (recursively), add dir to its
+              # sibling_entries.
+              sibling_entries.append(EntryOf(dir))
+            stack_entry.up = True
+            dirskip_count += 1
+            continue
 
         dirscan_count += 1
         logging.info('scanning dir=%r dirscan_count=%d' % (dir, dirscan_count))
@@ -517,31 +542,45 @@ class Scanner(object):
         rows = list(cursor.execute('SELECT entrylist FROM dirs WHERE dir=?',
             (dir,)))
         if rows and rows[0][0]:
-          subdirs_deleted = sorted(
+          subdirs_gone = sorted(
               set(['%s/%s' % (dir, entry) for entry in rows[0][0].split('/')])
               .difference(subdirs))
-          for dir_deleted in subdirs_deleted:
-            # TODO: test this by removing /mnt/mini/other/deep/a  (or even one level deeper)
-            #       mkdir -p /mnt/mini/other/deep/a/b && echo c.data >/mnt/mini/other/deep/a/b/c && setfattr -n user.tags -v c.tag /mnt/mini/other/deep/a/b/c
-            cursor.execute('DELETE FROM dirs WHERE dir=?', (dir_deleted,))
-            delete_count += cursor.rowcount
-            cursor.execute('DELETE FROM dirs WHERE dir>=? AND dir<?',
-                (dir_deleted + '/', dir_deleted + succ_slash))
-            delete_count += cursor.rowcount
-            cursor.execute('DELETE FROM fileattrs INDEXED BY fileattrs_nxattr '
-                'WHERE dir=?', (dir_deleted,))
-            delete_count += cursor.rowcount
-            cursor.execute('DELETE FROM fileattrs INDEXED BY fileattrs_nxattr '
-                'WHERE dir>=? AND dir<?',
-                (dir_deleted + '/', dir_deleted + succ_slash))
-            delete_count += cursor.rowcount
+          # TODO: don't remember the whole list, DELETE when going up
+          dirs_to_delete.extend(subdirs_gone)
         else:
           old_entrylist = ()
 
         if had_xattrs: sibling_entries.append(EntryOf(dir))
         stack_entry.up = True
+
         # Scan all subdirectories.
-        stack.extend(reversed([StackEntry(dir) for dir in subdirs]))
+        if subdirs:
+          stack.extend(reversed([StackEntry(dir) for dir in subdirs]))
+        else:
+          adict = {'dir': dir, 'at': now, 'ino': stack_entry.ino,
+                   'entrylist': ''}
+          update_count, insert_count, delete_count = self.UpdateDirs(
+              cursor=cursor, adict=adict, do_delete=(not had_xattrs),
+              update_count=update_count, insert_count=insert_count,
+              delete_count=delete_count)
+
+      for dir_to_delete in dirs_to_delete:
+        # TODO: test this by removing /mnt/mini/other/deep/a  (or even one level deeper)
+        #       mkdir -p /mnt/mini/other/deep/a/b && echo c.data >/mnt/mini/other/deep/a/b/c && setfattr -n user.tags -v c.tag /mnt/mini/other/deep/a/b/c
+        # TODO: test this by: mv /mnt/mino/other/{shallow,deep}
+        # TODO: cursor.executemany()
+        cursor.execute('DELETE FROM dirs WHERE dir=?', (dir_to_delete,))
+        delete_count += cursor.rowcount
+        cursor.execute('DELETE FROM dirs WHERE dir>=? AND dir<?',
+            (dir_to_delete + '/', dir_to_delete + succ_slash))
+        delete_count += cursor.rowcount
+        cursor.execute('DELETE FROM fileattrs INDEXED BY fileattrs_nxattr '
+            'WHERE dir=?', (dir_to_delete,))
+        delete_count += cursor.rowcount
+        cursor.execute('DELETE FROM fileattrs INDEXED BY fileattrs_nxattr '
+            'WHERE dir>=? AND dir<?',
+            (dir_to_delete + '/', dir_to_delete + succ_slash))
+        delete_count += cursor.rowcount
 
       # !! use now-1 etc. in case the dir was modified in the same second.
       now_out = now  # float(int(now) - 1)
