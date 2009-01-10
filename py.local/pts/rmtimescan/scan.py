@@ -21,7 +21,6 @@ import math
 import os
 import pysqlite2.dbapi2 as sqlite
 import stat
-import sys
 import time
 import xattr
 
@@ -676,9 +675,3 @@ class Scanner(object):
 
 def main(argv):
   Scanner().RunForever()
-
-
-if __name__ == '__main__':
-  logging.BASIC_FORMAT = '[%(created)f] %(levelname)s %(message)s'
-  logging.root.setLevel(logging.INFO)  # Prints INFO, but not DEBUG.
-  main(sys.argv)
