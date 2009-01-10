@@ -16,6 +16,7 @@
 
 import errno
 import logging
+import math
 import os
 import pysqlite2.dbapi2 as sqlite
 import stat
@@ -333,23 +334,25 @@ class Scanner(object):
         # Increase even if no column changed.
         update_count += 1
         assert cursor.rowcount == 1
-    if do_close_cursor:
-      cursor.close()
+    if do_close_cursor: cursor.close()
     return (update_count, insert_count)
 
   def ScanRootDir(self, db, root_dir, now):
     logging.info('scanning root_dir=%r now=%r' % (root_dir, now))
     succ_slash = chr(ord('/') + 1)
+    now_floor = math.floor(now)  # int(now) rounds towards 0.
     update_count = 0
     insert_count = 0
     delete_count = 0
+    # !! do a quick check if root_dir has changed
     cursor = db.cursor()
     ats = tuple(cursor.execute("SELECT at FROM lastscans WHERE which=''"))
     if ats:
       prev_scan_at = ats[0][0]
       logging.info('prev scan at=%r' % prev_scan_at)
+      prev_scan_floor = math.floor(prev_scan_at)
     else:
-      prev_scan_at = float('-inf')
+      prev_scan_at = prev_scan_floor = float('-inf')
       logging.info('no prev scan')
 
     # Do an inorder scan (files before subdirs), entries alphanumerically.
@@ -358,7 +361,8 @@ class Scanner(object):
       subdirs = []
       fileattrs = []
       stat_count = 0
-      dir_count = 0
+      dirscan_count = 0
+      dirskip_count = 0
       while stack:
         #print 'STACK', stack
         stack_entry = stack[-1]
@@ -411,7 +415,33 @@ class Scanner(object):
         else:
           fsdir = root_dir
 
-        dir_count += 1
+        try:
+          st = os.stat(fsdir)
+        except OSError:
+          logging.info('cannot list dir: %s' % e)
+          st = None
+
+        if st and stat.S_ISDIR(st.st_mode) and st.st_mtime < prev_scan_floor:
+          # Don't descend to dir, because it has not changed since last scan.
+          # This condition assumes that rmtimeup.ko is loaded.
+          # TODO: Make the scanner work (slowly) without rmtimeup.ko.
+          # !! scan dir if parent of dir has been renamed
+          if (tuple(cursor.execute(
+              'SELECT 1 FROM fileattrs INDEXED BY fileattrs_nxattr '
+              'WHERE dir=? LIMIT 1', (dir,))) or
+              tuple(cursor.execute(
+              'SELECT 1 FROM fileattrs INDEXED BY fileattrs_nxattr '
+              'WHERE dir>=? AND dir<? LIMIT 1',
+              (dir + '/', dir + succ_slash)))):
+            # If db contains xattrs in dir (recursively), add dir to its
+            # sibling_entries.
+            sibling_entries.append(EntryOf(dir))
+          stack_entry.up = True
+          dirskip_count += 1
+          continue
+
+        dirscan_count += 1
+        logging.info('scanning dir=%r dirscan_count=%d' % (dir, dirscan_count))
 
         try:
           entries = sorted(os.listdir(fsdir))
@@ -428,15 +458,17 @@ class Scanner(object):
             fsfn = root_dir + fn[2:]
           else:
             fsfn = root_dir + fn[1:]
-          if dir_count == 1 and entry.startswith(self.TAGDB_NAME):
+          if dir == '.' and entry.startswith(self.TAGDB_NAME):
             # Ignore the tagdb file.
             continue
 
           stat_count += 1
           if stat_count % 1000 == 0:
             logging.info('scanning in progress filename=%r '
+                'dirscan_count=%d dirskip_count=%d '
                 'update_count=%d insert_count=%d delete_count=%d' %
-                (fn, update_count, insert_count, delete_count))
+                (fn, dirscan_count, dirskip_count,
+                 update_count, insert_count, delete_count))
           try:
             st = os.stat(fsfn)
           except OSError, e:
@@ -512,15 +544,19 @@ class Scanner(object):
         stack.extend(reversed([StackEntry(dir) for dir in subdirs]))
 
       # !! use now-1 etc. in case the dir was modified in the same second.
-      cursor.execute("UPDATE lastscans SET at=? WHERE which=''", (now,))
+      now_out = now  # float(int(now) - 1)
+      cursor.execute("UPDATE lastscans SET at=? WHERE which=''",
+          (now_out,))
       if not cursor.rowcount:
         cursor.execute('INSERT INTO lastscans (which, at) VALUES (?, ?)',
-            ('', now))
+            ('', now_out))
       db.commit()
     finally:
       cursor.close()
-    logging.info('scan done, update_count=%d insert_count=%d delete_count=%d' %
-        (update_count, insert_count, delete_count))
+    logging.info('scan done, dirscan_count=%d dirskip_count=%d '
+        'update_count=%d insert_count=%d delete_count=%d' %
+        (dirscan_count, dirskip_count,
+         update_count, insert_count, delete_count))
 
 def main(argv):
   scanner = Scanner()
