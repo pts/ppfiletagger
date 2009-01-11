@@ -23,4 +23,4 @@ if __name__ == '__main__':
   else:
     logging.info('starting local_dir=%r' % local_dir)
     sys.path[: 0] = [local_dir]
-  __import__('pts.rmtimescan.scan', {}, {}, ('',)).main(sys.argv)
+  __import__('pts.rmtimetools.scan', {}, {}, ('',)).main(sys.argv)

@@ -520,6 +520,8 @@ class RootInfo(object):
     return need_again
 
   def GenerateTagsResponse(self, wordlistc, xattr):
+    """Generate (dir, entry, value) matches, in no particular order."""
+    # TODO: Verify proper use of indexes. 
     for row in self.db.execute(
         'SELECT dir, entry, value '
         'FROM filewords, fileattrs INDEXED BY fileattrs_xattr '
