@@ -1,21 +1,8 @@
 #! /usr/bin/python2.4
 # by pts@fazekas.hu at Wed Jan  7 06:22:51 CET 2009
 #
-# * The scanner needs a Linux systems with the rmtimeup.ko kernel module
-#   loaded.
 # * The scanner should not be run as root (to restrict the effects of
 #   security vulnerabilities).
-#
-# TODO: Test by faking the filesystem.
-# TODO: Reduce the amount of unnecessary stats, listdirs, and xattrs.get_alls.
-#       (also modify rmtimeup).
-# TODO: Reduce the amount of database UPDATEs (is a SELECT before an UPDATE
-#       really faster?)
-# TODO: Add a modified-file-list to rmtimeup, and use mtime-based scanning only
-#       as a safety fallback. This will speed up response time.
-# TODO: Add INDEXED BY to each query.
-# TODO: Don't let two instances of scan.py run at the same time.
-# TODO: Ignore or defer SIGINT (KeyboardInterrupt).
 
 import errno
 import logging
@@ -182,7 +169,7 @@ class RootInfo(base.RootInfo):
         insert_count += 1
     return update_count, insert_count, delete_count
 
-  def ScanRootDir(self, now):
+  def ScanRootDir(self, now, do_incremental):
     """Scan filesystem root directory root_dir to db at now.
 
     Returns:
@@ -205,7 +192,7 @@ class RootInfo(base.RootInfo):
     try:
       st = os.stat(root_dir)
       assert stat.S_ISDIR(st.st_mode)
-      if st.st_mtime < prev_scan_floor:
+      if st.st_mtime < prev_scan_floor and do_incremental:
         logging.info('skipping root_dir=%r now=%r prev_scan_at=%r' %
             (root_dir, now, prev_scan_at))
         return False
@@ -284,7 +271,7 @@ class RootInfo(base.RootInfo):
           st = None
 
         if st and stat.S_ISDIR(st.st_mode):
-          if st.st_mtime < prev_scan_floor:
+          if st.st_mtime < prev_scan_floor and do_incremental:
             # Don't descend to dir, because it has not changed since last scan.
             # This condition assumes that rmtimeup.ko is loaded.
             # TODO: Make the scanner work (slowly) without rmtimeup.ko.
@@ -476,9 +463,17 @@ class Scanner(base.GlobalInfo):
     # Do we need a new scan because of timestamp rounding differences?
     self.need_new_scan = True
 
-  def ScanRootDirs(self):
+  def DoingIncremental(self):
+    assert self.event_fd >= 0, ('event file %r not found, '
+        'please load kernel module rmtimeup.ko '
+        '(or specify --slow)' % self.EVENT_FILENAME)
+
+  def ScanRootDirs(self, do_incremental):
     scan_root_dirs = sorted(self.roots)
-    logging.info('scanning root dirs %s' % scan_root_dirs)
+    logging.info('scanning root_dirs=%s do_incremental=%r' %
+        (scan_root_dirs, do_incremental))
+    if do_incremental:
+      self.DoingIncremental()
     # Round the time to millisecond precision in order to not to loose
     # precision with SQLite.
     while True:
@@ -491,12 +486,14 @@ class Scanner(base.GlobalInfo):
       got_now = tuple(root.db.execute("SELECT ?", (now,)))
       assert ((now,),) == got_now, ('timestamp mismatch: sent=%r, got=%r' %
           (now, got_now))
-      if root.ScanRootDir(now=now): self.need_new_scan = True
+      if root.ScanRootDir(now=now, do_incremental=do_incremental):
+        self.need_new_scan = True
     self.last_scan_at = now
 
   def RunMainLoop(self):
     """Infinite main loop waiting for changes and processing them."""
     logging.info('starting main loop')
+    self.DoingIncremental()
     while True:
       # We close the tagdbs so the filesystems remain unmountable.
       self.CloseDBs()
@@ -522,13 +519,13 @@ class Scanner(base.GlobalInfo):
         self.OpenTagDBs(self.ParseMounts())
       if 0 != (bits & 1):  # EVENT_FILES_CHANGED
         self.ReopenDBs(do_close_first=False)
-        self.ScanRootDirs()
+        self.ScanRootDirs(do_incremental=True)
 
-  def Run(self, do_forever):
+  def Run(self, do_forever, do_incremental):
     try:
       self.OpenEvent()
       self.OpenTagDBs(self.ParseMounts())
-      self.ScanRootDirs()
+      self.ScanRootDirs(do_incremental=do_incremental)
       if do_forever:
         self.RunMainLoop()
       else:
@@ -538,4 +535,6 @@ class Scanner(base.GlobalInfo):
 
 
 def main(argv):
-  Scanner().Run(do_forever=(len(argv) > 1 and argv[1] == '--forever'))
+  Scanner().Run(
+      do_forever=(len(argv) > 1 and argv[1] == '--forever'),
+      do_incremental=not (len(argv) > 1 and argv[1] == '--slow'))

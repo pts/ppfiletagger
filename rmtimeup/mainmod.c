@@ -22,17 +22,6 @@
  *
  */
 
-/* Imp: use shared.* (for documentation purposes) */
-/* TODO: use mtime/atime/ctime of fs root inode to detect that it has been
- *       mounted without this kernel module. atime detects ls /fsroot, but not
- *       any operatin on /fsroot/foo/bar.
- *       * propose a solution which survives an unclean umount
- *       * ext2 has mount count, last mount time, last write time (tune2fs),
- *         reiserfs doesn't have these features
- * TODO: test for stability
- * TODO: simplify the disassembler, recognize only a few instructions
- */
-
 #include <linux/kernel.h>
 #include <linux/version.h>
 #define __NO_VERSION__

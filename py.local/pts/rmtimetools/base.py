@@ -140,9 +140,9 @@ class GlobalInfo(object):
     return db
 
   def Close(self):
-    if self.event_fd is not None:
+    if self.event_fd is not None and self.event_fd >= 0:
       os.close(self.event_fd)
-      self.event_fd = None
+    self.event_fd = None
     self.CloseDBs()
 
   def __del__(self):
@@ -156,10 +156,8 @@ class GlobalInfo(object):
     try:
       self.event_fd = os.open(self.EVENT_FILENAME, os.O_RDONLY)
     except OSError, e:
-      if e.errno == errno.ENOENT:
-        assert 0, ('event file %r not found, '
-            'please load kernel module rmtimup.ko' % EVENT_FILENAME)
-      raise
+      if e.errno != errno.ENOENT: raise
+      self.event_fd = -1
 
   def ParseMounts(self, mounts_filename='/proc/mounts'):
     if not isinstance(mounts_filename, str): raise TypeError
