@@ -6,20 +6,23 @@
 # * The scanner should not be run as root (to restrict the effects of
 #   security vulnerabilities).
 #
+# TODO: Test by faking the filesystem.
 # TODO: Reduce the amount of unnecessary stats, listdirs, and xattrs.get_alls.
 #       (also modify rmtimeup).
 # TODO: Reduce the amount of database UPDATEs (is a SELECT before an UPDATE
 #       really faster?)
 # TODO: Add a modified-file-list to rmtimeup, and use mtime-based scanning only
 #       as a safety fallback. This will speed up response time.
-# TODO: add INDEXED BY to each query.
-# TODO: don't let two scan.py run at the same time
+# TODO: Add INDEXED BY to each query.
+# TODO: Don't let two instances of scan.py run at the same time.
+# TODO: Ignore or defer SIGINT (KeyboardInterrupt).
 
 import errno
 import logging
 import math
 import os
 import pysqlite2.dbapi2 as sqlite
+import re
 import select
 import stat
 import time
@@ -75,6 +78,11 @@ class RootInfo(object):
   """Information about a filesystem root directory."""
 
   __slots__ = ['db', 'root_dir', 'last_scan_at', 'tagdb_name']
+
+  FILEWORDS_XATTRS = ('tags',)
+  """Sequence of user.* extended attribute names to be added to the full-text
+  index (table filewords)."""
+
   def __init__(self, db, root_dir, last_scan_at, tagdb_name):
     # sqlite.Connection or None.
     self.db = db
@@ -99,12 +107,15 @@ class RootInfo(object):
     for adict in dicts:
       if keys is None:
         keys = sorted(adict)
-        assert 'nlink' in keys
-        assert 'dir' in keys
-        has_entry = 'entry' in keys
-        has_xattr = 'xattr' in keys
+        assert 'nlink' in adict
+        assert 'dir' in adict
+        assert 'filewords_rowid' in adict
+        assert adict['filewords_rowid'] is None
+        has_entry = 'entry' in adict
+        has_xattr = 'xattr' in adict
         update_keys = list(keys)
         update_keys.remove('dir')
+        update_keys.remove('filewords_rowid')
         if has_entry: update_keys.remove('entry')
         if has_xattr: update_keys.remove('xattr')
         assert update_keys
@@ -125,14 +136,46 @@ class RootInfo(object):
       else:
         assert sorted(adict) == keys, 'keys mismatch: new=%r vs old=%r' % (
             (sorted(adict), keys))
+
+      if adict['xattr'] in self.FILEWORDS_XATTRS:
+        worddata = self.ValueToWordData(adict['value'])
+        adict = dict(adict)  # Shallow copy. Imp: speed up.
+      else:
+        worddata = None
+
       #print (update_sql, adict)
       cursor.execute(update_sql, adict)
       if cursor.rowcount == 0:
+        if worddata is not None:
+          cursor.execute(
+              'INSERT INTO filewords (worddata) VALUES (?)', (worddata,))
+          insert_count += 1
+          adict['filewords_rowid'] = cursor.lastrowid
         cursor.execute(insert_sql, adict)
         insert_count += 1
       else:
         # Increase even if no column changed.
         assert cursor.rowcount == 1
+        do_update_again = adict['nlink'] > 1
+        if worddata is not None:
+          rows = tuple(cursor.execute(
+              'SELECT filewords_rowid FROM %s INDEXED BY %s_nxattr '
+              'WHERE dir=:dir%s%s' % (table, table, and_entry, and_xattr),
+              adict))
+          if rows:
+            assert len(rows) == 1
+            cursor.execute('UPDATE filewords SET worddata=? WHERE rowid=?',
+                (worddata, rows[0][0]))
+            if cursor.rowcount:
+              update_count += 1
+            else:
+              cursor.execute(
+                  'INSERT INTO filewords (worddata) VALUES (?)', (worddata,))
+              insert_count += 1
+              adict['filewords_rowid'] = cursor.lastrowid
+              update_assignments += ', filewords_rowid=:filewords_rowid'
+              do_update_again = True
+            
         if adict['nlink'] > 1:
           # Update all files with the same adict['ino'].
           # This SQL updates the original row as well, never mind.
@@ -163,6 +206,35 @@ class RootInfo(object):
             'VALUES (:dir, :entrylist, :at, :ino)', adict)
         insert_count += 1
     return update_count, insert_count, delete_count
+
+  WORDDATA_NONWORDCHAR_RE = re.compile(r'[^a-z0-9:_ ]')
+  WORDDATA_SPLIT_WORD_RE = re.compile(r'[^\s?!.,;\[\](){}<>"\']+')
+  PTAG_TO_SQLITEWORD_RE = re.compile(r'[6789:_]')
+  PTAG_TO_SQLITEWORD_DICT = {
+    '6': '66',
+    '7': '65',
+    '8': '64',
+    '9': '63',
+    ':': '7',
+    '_': '8',
+  }
+
+  def ValueToWordListc(self, value):
+    """Return a list of normalized words concatenated by space."""
+    if not isinstance(value, str): raise TypeError
+    words = []
+    re.sub(  # Igore return value, only update words.
+        self.WORDDATA_SPLIT_WORD_RE,
+        (lambda match: words.append(match.group(0).lower())), value)
+    return re.sub(self.WORDDATA_NONWORDCHAR_RE, '_', ' '.join(words))
+
+  def ValueToWordData(self, value):
+    """Return fileattrs.value converted to filewords.worddata."""
+    if not isinstance(value, str): raise TypeError
+    return re.sub(
+        self.PTAG_TO_SQLITEWORD_RE,
+        (lambda match: self.PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
+        self.ValueToWordListc(value))
 
   def ScanRootDir(self, now):
     """Scan filesystem root directory root_dir to db at now.
@@ -338,13 +410,14 @@ class RootInfo(object):
               # database in case an xattr gets added to one of them later.
               xattrs.append(('', ''))
             if xattrs:
-              had_xattrs = True
               adict = {
-                  'at': now,
+                  'at': now, 'filewords_rowid': None,
                   'ino': int(st.st_ino), 'dir': dir, 'entry': entry,
                   'nlink': int(st.st_nlink), 'size': int(st.st_size),
                   'ctime': int(st.st_ctime), 'mtime': int(st.st_mtime)}
               for xattr_name, value in xattrs:
+                if not value: continue
+                had_xattrs = True
                 adict2 = dict(adict)
                 adict2['xattr'] = xattr_name
                 adict2['value'] = value
@@ -356,6 +429,13 @@ class RootInfo(object):
               db=self.db, table='fileattrs', dicts=fileattrs, cursor=cursor,
               update_count=update_count, insert_count=insert_count)
 
+        # TODO: check if DELETE is fast enough
+        cursor.execute('DELETE FROM filewords WHERE rowid IN '
+            '(SELECT filewords_rowid FROM fileattrs '
+            'INDEXED BY fileattrs_nxattr '
+            'WHERE dir=? AND at<>? AND filewords_rowid IS NOT NULL)',
+            (dir, now))
+        delete_count += cursor.rowcount
         cursor.execute('DELETE FROM fileattrs INDEXED BY fileattrs_nxattr '
             'WHERE dir=? AND at<>?', (dir, now))
         delete_count += cursor.rowcount
@@ -403,8 +483,20 @@ class RootInfo(object):
         cursor.execute('DELETE FROM dirs WHERE dir>=? AND dir<?',
             (dir_to_delete + '/', dir_to_delete + succ_slash))
         delete_count += cursor.rowcount
+        cursor.execute('DELETE FROM filewords WHERE rowid IN '
+            '(SELECT filewords_rowid FROM fileattrs '
+            'INDEXED BY fileattrs_nxattr '
+            'WHERE dir=? AND filewords_rowid IS NOT NULL)',
+            (dir,))
+        delete_count += cursor.rowcount
         cursor.execute('DELETE FROM fileattrs INDEXED BY fileattrs_nxattr '
             'WHERE dir=?', (dir_to_delete,))
+        delete_count += cursor.rowcount
+        cursor.execute('DELETE FROM filewords WHERE rowid IN '
+            '(SELECT filewords_rowid FROM fileattrs '
+            'INDEXED BY fileattrs_nxattr '
+            'WHERE dir>=? AND dir<? AND filewords_rowid IS NOT NULL)',
+            (dir_low, dir_high))
         delete_count += cursor.rowcount
         cursor.execute('DELETE FROM fileattrs INDEXED BY fileattrs_nxattr '
             'WHERE dir>=? AND dir<?',
@@ -426,6 +518,19 @@ class RootInfo(object):
         (dirscan_count, dirskip_count,
          update_count, insert_count, delete_count))
     return need_again
+
+  def GenerateTagsResponse(self, wordlistc, xattr):
+    for row in self.db.execute(
+        'SELECT dir, entry, value '
+        'FROM filewords, fileattrs INDEXED BY fileattrs_xattr '
+        'WHERE worddata MATCH (?) AND '
+        'xattr=? AND filewords.rowid=filewords_rowid', (wordlistc, xattr)):
+      yield (row[0], row[1], row[2])  # (dir, entry, value)
+
+
+# TODO: move this to a test
+assert 'i said: hello wonderful_world 0123456789' == RootInfo(db=None, root_dir=None, last_scan_at=None, tagdb_name=None).ValueToWordListc('  I said:\tHello,  Wonderful_World! 0123456789\r\n')
+assert 'i said7 hello wonderful8world 01234566656463' == RootInfo(db=None, root_dir=None, last_scan_at=None, tagdb_name=None).ValueToWordData('I said: Hello,  Wonderful_World! 0123456789')
 
 
 class Scanner(object):
@@ -603,8 +708,6 @@ class Scanner(object):
     # Imp: do this in a transaction?
     logging.info('creating tables in tagdb %r' % db_filename)
     try:
-      # TODO: add indexes
-      # TODO: add fts3
       # TODO: remember added and last-modified timestamps
       # List of files with user.* extended attributes.
       # We could normalize this table to link to inodeattrs (ino, attr, value). 
@@ -612,20 +715,27 @@ class Scanner(object):
                  'dir TEXT NOT NULL, entry TEXT NOT NULL, '
                  'nlink INTEGER NOT NULL, ctime INTEGER NOT NULL, '
                  'mtime INTEGER NOT NULL, size INTEGER NOT NULL, '
-                 'at FLOAT NOT NULL, '
+                 'at FLOAT NOT NULL, filewords_rowid INTEGER, '
                  'xattr TEXT NOT NULL, value TEXT NOT NULL)')
       # Field ino is not unique, a file can have multiple links.
       db.execute('CREATE INDEX fileattrs_nxattr ON fileattrs '
           '(dir, entry, xattr)')
+      db.execute('CREATE INDEX fileattrs_xattr ON fileattrs '
+          '(xattr, filewords_rowid)')
       db.execute('CREATE INDEX fileattrs_ino ON fileattrs (ino)')
-      db.execute('CREATE INDEX fileattrs_at ON fileattrs (at)')
+
+      # filewords.rowid == fileattrs.xattrs_rowid. filewords.worddata contains
+      # RootInfo.ValueToWordData(fileattrs.value) for the corresponding row. 
+      db.execute('CREATE VIRTUAL TABLE filewords '
+                 'USING FTS3(worddata TEXT NOT NULL)')
+
       # Non-root directories of name dir + '/' + entry.
       db.execute('CREATE TABLE dirs (ino INTEGER NOT NULL, '
                  'dir TEXT NOT NULL, entrylist TEXT NOT NULL, '
                  'at FLOAT NOT NULL)')
       db.execute('CREATE UNIQUE INDEX dirs_dir ON dirs (dir)')
       db.execute('CREATE UNIQUE INDEX dirs_ino ON dirs (ino)')
-      # !! EXPLAIN SELECT * FROM fileattrs INDEXED BY fileattrs_at WHERE at>5 AND at<6
+
       db.execute('CREATE TABLE lastscans (which TEXT PRIMARY KEY NOT NULL, '
                  'at FLOAT)')
     except sqlite.OperationalError:
@@ -684,15 +794,55 @@ class Scanner(object):
         self.ReopenDBs(do_close_first=False)
         self.ScanRootDirs()
 
-  def RunForever(self):
+  def GenerateTagsResponse(self, tags, xattr='tags'):
+    # TODO: Print warning if tagdb is not up to date.
+    # TODO: Accept search_root_dir argument.
+    if not isinstance(tags, str): raise TypeError
+    if not isinstance(xattr, str): raise TypeError
+    wordlistc = None
+    if not self.roots:
+      self.OpenTagDBs(self.ParseMounts())
+    else:
+      # TODO: do ParseMounts again occasionally
+      self.ReopenDBs(do_close_first=False)
+
+    for scan_root_dir in self.roots:
+      root_info = self.roots[scan_root_dir]
+      if wordlistc is None:
+        wordlistc = root_info.ValueToWordData(tags)
+      root_slash = root_info.root_dir
+      if not root_slash.endswith('/'): root_slash += '/'
+      for dir, entry, value in root_info.GenerateTagsResponse(
+          wordlistc=wordlistc, xattr=xattr):
+        if dir == '.':
+          filename = root_slash + entry
+        else:
+          filename = '%s%s/%s' % (root_slash, dir[2:], entry)
+        yield filename, value
+
+  def Run(self, do_forever):
     try:
       self.OpenEvent()
       self.OpenTagDBs(self.ParseMounts())
       self.ScanRootDirs()
-      self.RunMainLoop()
+      if do_forever:
+        self.RunMainLoop()
+      else:
+        logging.info('first scan done, exiting.')
     finally:
       self.Close()
 
 
 def main(argv):
-  Scanner().RunForever()
+  if len(argv) > 1 and argv[1][0] != '-':
+    tags = ' '.join(argv[1:])
+    count = 0
+    for filename, taglistc in Scanner().GenerateTagsResponse(tags=tags):
+      print repr((filename, taglistc))
+      count += 1
+    if count:
+      logging.info('found result count=%d tags=%r' % (count, tags))
+    else:
+      logging.info('no results found tags=%r' % (tags,))
+    return
+  Scanner().Run(do_forever=(len(argv) > 1 and argv[1] == '--forever'))

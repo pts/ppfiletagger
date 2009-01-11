@@ -11,14 +11,7 @@ if __name__ == '__main__':
   logging.BASIC_FORMAT = '[%(created)f] %(levelname)s %(message)s'
   logging.root.setLevel(logging.INFO)  # Prints INFO, but not DEBUG.
   prog_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-  try:
-    sys.path.remove(prog_dir)
-  except ValueError:
-    pass
-  try:
-    sys.path.remove('.')
-  except ValueError:
-    pass
+  sys.path[:] = [dir for dir in sys.path if dir not in (prog_dir, '.')]
   local_dir = None
   for i in xrange(len(prog_dir.split('/'))):
     local_dir = prog_dir + '/py.local'
