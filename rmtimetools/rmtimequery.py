@@ -1,7 +1,7 @@
 #! /usr/bin/python2.4
 #
-# rmtimescan.py: command line utility for pts.rmtimescan.scan
-# by pts@fazekas.hu at Sat Jan 10 20:09:57 CET 2009
+# rmtimequery: query the xattr databases for tag full-text search
+# by pts@fazekas.hu at Sun Jan 11 05:54:42 CET 2009
 #
 
 if __name__ == '__main__':
@@ -24,4 +24,4 @@ if __name__ == '__main__':
     logging.info('starting local_dir=%r' % local_dir)
     sys.path[: 0] = [local_dir]
   sys.exit(
-      __import__('pts.rmtimetools.scan', {}, {}, ('',)).main(sys.argv) or 0)
+      __import__('pts.rmtimetools.query', {}, {}, ('',)).main(sys.argv) or 0)
