@@ -36,9 +36,7 @@ ppfiletagger needs:
 * pysqlite (included, linked against python-2.4.4 and libc-2.3.6).
 * pyxattr (linked against python-2.4.4).
 * For the incremental rescanning feature, the provided Linux kernel module
-  rmtimeup.ko has to be loaded.
-  (part of ppfiletagger), the provided Linux kernel module has to be loaded.
-  It needs:
+  rmtimeup.ko has to be loaded. It needs:
 ** A Linux system running kernel 2.6 on i386 (x86) 32-bit architecture.
    Other architectures, including 64-bit (x86-64, amd64, ia64) are not
    supported. uname -a should print Linux, 2.6.*, i[3456]86, but not x86_64.
@@ -105,7 +103,7 @@ This will take lots of time, longer than `ls -laR' on all the media
 filesystems, because it also fetches all user.* extended attributes in
 addition to the filenames and the inodes. The second run of rmtimescan.py
 (without `--slow') will be much faster, because it does an incremental
-rescanning, visition only paths which have changed -- but this needs the
+rescanning, visiting only paths which have changed -- but this needs the
 rmtimeup.ko kernel module.
 
 Search for files by tag using rmtimequery.py:
@@ -161,14 +159,13 @@ TODO
 # rmtimescan:
 # TODO: link against libattr statically (thus removing libattr as a dependency)
 # TODO: Test by using a fake filesystem.
-# TODO: Reduce the amount of unnecessary stats, listdirs, and xattrs.get_alls.
+# TODO: Reduce the amount of unnecessary stats, listdirs, and xattrs.get_all()s
 #       (also modify rmtimeup).
 # TODO: Reduce the amount of database UPDATEs (is a SELECT before an UPDATE
 #       really faster?)
 # TODO: Add a modified-file-list to rmtimeup, and use mtime-based scanning only
 #       as a safety fallback. This will speed up response time.
-# TODO: Add INDEXED BY to each query.
-# TODO: Don't let two instances of scan.py run at the same time.
+# TODO: Don't let two instances of rmtimescan.py run at the same time.
 # TODO: Ignore or defer SIGINT (KeyboardInterrupt).
 # TODO: doc: what kind of mtime clock sync is necessary? what can go wrong?
 # rmtimeup:
