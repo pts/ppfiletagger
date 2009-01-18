@@ -35,7 +35,7 @@ EXTRA_CFLAGS=-DUSE_EXTRA_VFSMNT=$(USE_EXTRA_VFSMNT) -DUSE_SPRINT_SYMBOL=$(USE_SP
 # vvv Dat: there must be no rmtimeup.c (because of dependency management)
 obj-m := rmtimeup.o
 
-rmtimeup-y := mainmod.o ud.o
+rmtimeup-y := mainmod.o
 
 all:
 	make -C /lib/modules/$(KERNEL_VERSION)/build SUBDIRS=$(PWD) \

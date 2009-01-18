@@ -45,8 +45,6 @@
 #include <linux/kallsyms.h>
 #include <linux/mount.h>
 
-#include "ud.h"
-
 MODULE_AUTHOR("Peter Szabo");
 MODULE_DESCRIPTION("rmtimeup "RMTIMEUP_VERSION" recursive filesystem change notify");
 MODULE_LICENSE("GPL");
@@ -335,42 +333,82 @@ static struct file_operations rmtimeup_event_ops = {
 
 /* --- Hooks and anchors */
 
+/* This is i386 (32-bit) specific. */
+
+static struct instruction {
+  unsigned char byte0, mask0;
+  unsigned char byte1, mask1;
+  unsigned char byte2, mask2;
+  unsigned short size;
+} instructions[] = {
+  { .byte0=0x05, .mask0=0xFF                          , .size=5},  /* add eax, dword ... */
+  { .byte0=0x0D, .mask0=0xFF                          , .size=5},  /* or  eax, dword ... */
+  { .byte0=0x15, .mask0=0xFF                          , .size=5},  /* adc eax, dword ... */
+  { .byte0=0x1D, .mask0=0xFF                          , .size=5},  /* sbb eax, dword ... */
+  { .byte0=0x25, .mask0=0xFF                          , .size=5},  /* and eax, dword ... */
+  { .byte0=0x2D, .mask0=0xFF                          , .size=5},  /* sub eax, dword ... */
+  { .byte0=0x29, .mask0=0xFF, .byte1=0xC0, .mask1=0xC0, .size=2},  /* sub r32, r32 */
+  { .byte0=0x31, .mask0=0xFF, .byte1=0xC0, .mask1=0xC0, .size=2},  /* xor r32, r32 */
+  { .byte0=0x35, .mask0=0xFF                          , .size=5},  /* xor eax, dword ... */
+  { .byte0=0x50, .mask0=0xF8                          , .size=1},  /* push r32 */
+  { .byte0=0x58, .mask0=0xF8                          , .size=1},  /* pop r32 */
+  { .byte0=0x66, .mask0=0xFF, .byte1=0x68, .mask1=0xFF, .size=4},  /* push word ... */
+  { .byte0=0x68, .mask0=0xFF                          , .size=5},  /* push dword ... */
+  { .byte0=0x6A, .mask0=0xFF                          , .size=2},  /* push byte ... */
+  { .byte0=0x81, .mask0=0xFF, .byte1=0xC0, .mask1=0xF8, .size=6},  /* add r32, dword ... */
+  { .byte0=0x81, .mask0=0xFF, .byte1=0xC8, .mask1=0xF8, .size=6},  /* or  r32, dword ... */
+  { .byte0=0x81, .mask0=0xFF, .byte1=0xD0, .mask1=0xF8, .size=6},  /* adc r32, dword ... */
+  { .byte0=0x81, .mask0=0xFF, .byte1=0xD9, .mask1=0xF8, .size=6},  /* sbb r32, dword ... */
+  { .byte0=0x81, .mask0=0xFF, .byte1=0xE0, .mask1=0xF8, .size=6},  /* and r32, dword ... */
+  { .byte0=0x81, .mask0=0xFF, .byte1=0xE8, .mask1=0xF8, .size=6},  /* sub r32, dword ... */
+  { .byte0=0x81, .mask0=0xFF, .byte1=0xF0, .mask1=0xF8, .size=6},  /* xor r32, dword ... */
+  { .byte0=0x83, .mask0=0xFF, .byte1=0xC0, .mask1=0xF8, .size=3},  /* add r32, byte ... */
+  { .byte0=0x83, .mask0=0xFF, .byte1=0xC8, .mask1=0xF8, .size=3},  /* or  r32, byte ... */
+  { .byte0=0x83, .mask0=0xFF, .byte1=0xD0, .mask1=0xF8, .size=3},  /* adc r32, byte ... */
+  { .byte0=0x83, .mask0=0xFF, .byte1=0xD9, .mask1=0xF8, .size=3},  /* sbb r32, byte ... */
+  { .byte0=0x83, .mask0=0xFF, .byte1=0xE0, .mask1=0xF8, .size=3},  /* and r32, byte ... */
+  { .byte0=0x83, .mask0=0xFF, .byte1=0xE8, .mask1=0xF8, .size=3},  /* sub r32, byte ... */
+  { .byte0=0x83, .mask0=0xFF, .byte1=0xF0, .mask1=0xF8, .size=3},  /* xor r32, byte ... */
+  { .byte0=0x89, .mask0=0xFF, .byte1=0x44, .mask1=0xC7, .byte2=0x24, .mask2=0xFF, .size=4},  /* mov [esp+byte ...], r32 */
+  { .byte0=0x89, .mask0=0xFF, .byte1=0xC0, .mask1=0xC0, .size=2},  /* mov r32, r32 */
+  { .byte0=0x8B, .mask0=0xFF, .byte1=0x44, .mask1=0xC7, .byte2=0x24, .mask2=0xFF, .size=4},  /* mov r32, [esp+byte ...] */
+  { .byte0=0x90, .mask0=0xF8                          , .size=5},  /* xchg eax, r32  (and nop) */
+  { .byte0=0xB8, .mask0=0xF8                          , .size=5},  /* mov r32, dword ... */
+  { .byte0=0xC3, .mask0=0xFF                          , .size=1},  /* ret */
+  { .byte0=0xE8, .mask0=0xFF                          , .size=5},  /* call ... */
+  { .byte0=0xE9, .mask0=0xFF                          , .size=5},  /* jmp ... */
+  { .byte0=0xEB, .mask0=0xFF                          , .size=2},  /* jmp short ... */
+  {},
+};
+
 /** Returns a negative integer on error, or a positive integer at least min,
  * containing complete assembly instructions from pc.
  */
 int disasm_safe_size(char *pc, int min) {
-  unsigned maxbytes = 100;
-  char *dins;
-  char *dinsend;
-  unsigned inslen;
-  int inslen_total = 0;
-  ud_t ud_obj;
-  ud_init(&ud_obj);
-  ud_set_mode(&ud_obj, 32);
-  ud_set_syntax(&ud_obj, UD_SYN_INTEL);
-  ud_set_input_buffer(&ud_obj, (void*)pc, maxbytes);
-  ud_set_pc(&ud_obj, (unsigned long)(void*)pc);
-  PRINT_DEBUG("disasm_safe_size pc=%p min=%d\n", pc, min);
-  while (inslen_total < min && 0 != (inslen = ud_disassemble(&ud_obj))) {
-    inslen_total += inslen;
-    dins = ud_insn_asm(&ud_obj);
-    dinsend = dins + strlen(dins);
-    if (dinsend != dins && dinsend[-1] == ' ') --dinsend;
-    *dinsend = '\0';  /* remove trailing space from "ret " etc. */
-    PRINT_DEBUG("D%08lx  %s;\n", (unsigned long)ud_insn_off(&ud_obj), dins);
-    if (0 == strncmp(dins, "push ", 5)) {
-    } else if (0 == strncmp(dins, "jmp 0x", 6)) {
-    } else if ((0 == strncmp(dins, "mov ", 4) ||
-                0 == strncmp(dins, "sub ", 4) ||
-                0 == strncmp(dins, "add ", 4))) {
-    } else {
-      PRINT_DEBUG("unrecognized instruction at 0x%lx\n",
-          (unsigned long)ud_insn_off(&ud_obj));
-      return -EILSEQ;
+  int c = 0;
+  unsigned char *pcu = pc;
+  struct instruction *ins;
+  /*return -EILSEQ;*/  /* Invalid or incomplete multibyte or wide character */
+  while (c < min) {
+    PRINT_DEBUG("c=%d min=%d pcu=%p: 0x%02X 0x%02X 0x%02X\n",
+        c, min, pcu, pcu[0], pcu[1], pcu[2]);
+    for (ins = instructions; ins->mask0 != 0; ++ins) {
+      if (ins->byte0 == (ins->mask0 & pcu[0]) &&
+          ins->byte1 == (ins->mask1 & pcu[1]) &&
+          ins->byte2 == (ins->mask2 & pcu[2])) goto found;
     }
+    printk(KERN_INFO "unrecognized instruction at %p: 0x%2X 0x%2X\n",
+        pcu, pcu[0], pcu[1]);
+    return -EILSEQ; /*return -EMSGSIZE;*/
+   found:
+    c += ins->size;
+    if (pcu[0] == 0xE8 || pcu[0] == 0xE9 || pcu[0] == 0xEB) { /* jmp or call */
+      if (c < min) { pcu = NULL; c = min; }
+    }
+    pcu += ins->size;
   }
-  return inslen_total >= min ? inslen_total : -EMSGSIZE;
-} 
+  return c;
+}
 
 #define JMP_SIZE 5
 #define MAX_TRAMPOLINE_SIZE 24
@@ -445,7 +483,7 @@ static int set_hook(char *orig_function, char *replacement_function,
   }
   if (0 > (safe_size_orig = disasm_safe_size(orig_function, JMP_SIZE))) {
     printk(KERN_ERR "%s: could not hook %s.\n", THIS_MODULE->name, name);
-    return -EINVAL;  /* error */
+    return safe_size_orig;  /* error */
   }
   strncpy(hook->name, name, sizeof(hook->name));
   hook->name[sizeof(hook->name) - 1] = '\0';
