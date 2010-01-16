@@ -3,7 +3,9 @@
 # by pts@fazekas.hu at Sat Jan 20 22:29:43 CET 2007
 #
 
-#** @example _mmfs_tag 'tag1 tag2 ...' file1 file2 ...
+#** Adds or removes or sets tags.
+#** @example _mmfs_tag 'tag1 -tag2 ...' file1 file2 ...    # keep tag3
+#** @example _mmfs_tag '. tag1 -tag2 ...' file1 file2 ...  # remove tag3
 function _mmfs_tag() {
 	# Midnight Commander menu for movemetafs
 	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
@@ -18,8 +20,13 @@ use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_setxattr=&SYS_setxattr;
 my($tags)=shift(@ARGV);
 $tags="" if !defined $tags;
+my $key_mode = "modified";
+my $key0 = "user.mmfs.tags.modify";
+($key_mode, $key0) = ("set", "user.mmfs.tags") if $tags =~ s@\A[.](?:\s+|\Z(?!\n))@@;
 # vvv Dat: menu item is not run on a very empty string
-if ($tags!~/\S/) { print STDERR "no tags specified ($tags)\n"; exit 2 }
+if ($tags!~/\S/ and $key0 eq "user.mmfs.tags.modify") {
+  print STDERR "no tags specified ($tags)\n"; exit 2
+}
 print "to these files:\n";
 my $mmdir="$ENV{HOME}/mmfs/root/";
 my $C=0;
@@ -29,7 +36,7 @@ for my $fn0 (@ARGV) {
   substr($fn,0,0)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   print "  $fn\n";
   # vvv Imp: move, not setfattr
-  my $key="user.mmfs.tags.modify"; # Dat: must be in $var
+  my $key = $key0; # Dat: must be in $var
   my $got=syscall($SYS_setxattr, $fn, $key, $tags,
     length($tags), 0);
   if (!defined $got or $got<0) {
@@ -39,7 +46,7 @@ for my $fn0 (@ARGV) {
   } else { $C++ }
 }
 print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
-print "modified tags of $C file@{[$C==1?q():q(s)]}: $tags\n"
+print "$key_mode tags of $C file@{[$C==1?q():q(s)]}: $tags\n"
 END
 }
 
