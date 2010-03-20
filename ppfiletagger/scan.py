@@ -200,6 +200,8 @@ class RootInfo(base.RootInfo):
     else:
       prev_scan_at = self.last_scan_at
       prev_scan_floor = math.floor(prev_scan_at)
+    self.had_last_incremental = (
+        do_incremental and prev_scan_at != float('-inf'))
 
     # Return quickly if nothing has changed.
     try:
@@ -476,6 +478,7 @@ class Scanner(base.GlobalInfo):
     base.GlobalInfo.__init__(self)
     # Do we need a new scan because of timestamp rounding differences?
     self.need_new_scan = True
+    self.had_last_incremental = False
 
   def DoingIncremental(self):
     assert self.event_fd >= 0, ('event file %r not found, '
@@ -495,6 +498,7 @@ class Scanner(base.GlobalInfo):
       if now != self.last_scan_at: break
       time.sleep(0.001)
     self.need_new_scan = False
+    had_last_incremental = True
     for scan_root_dir in scan_root_dirs:
       root = self.roots[scan_root_dir]
       got_now = tuple(root.db.execute("SELECT ?", (now,)))
@@ -502,7 +506,10 @@ class Scanner(base.GlobalInfo):
           (now, got_now))
       if root.ScanRootDir(now=now, do_incremental=do_incremental):
         self.need_new_scan = True
+      if not root.had_last_incremental:
+        had_last_incremental = False
     self.last_scan_at = now
+    self.had_last_incremental = had_last_incremental
 
   def RunMainLoop(self):
     """Infinite main loop waiting for changes and processing them."""
@@ -543,7 +550,11 @@ class Scanner(base.GlobalInfo):
       if do_forever:
         self.RunMainLoop()
       else:
-        logging.info('first scan done, exiting.')
+        if self.had_last_incremental:
+          scan_type = 'incremental'
+        else:
+          scan_type = 'full'
+        logging.info('one %s scan done, exiting.' % scan_type)
     finally:
       self.Close()
 
