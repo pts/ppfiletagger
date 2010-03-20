@@ -8,7 +8,7 @@
 
 # vvv Dat: override with `make KERNEL_VERSION=...'
 KERNEL_VERSION = $(shell uname -r)
-RMTIMEUP_VERSION = 0.10
+RMTIMEUP_VERSION = 0.11
 PRODUCT = rfsdelta-$(VERSION)
 
 .PHONY: all clean install modules_install
@@ -34,6 +34,11 @@ USE_MODULE_OWNER_DETECT = 0$(shell >/dev/null grep 'struct module[ *]*owner;' /l
 USE_SPRINT_SYMBOL ?= 0
 USE_SPRINT_SYMBOL_DETECT = 0$(shell >/dev/null grep 'int sprint_symbol()*.*char' /lib/modules/$(KERNEL_VERSION)/build/include/linux/kallsyms.h && echo -n 1)
 
+# Ubuntu Hardy 2.6.24-27-generic kernel has
+# `unsigned long long __PAGE_KERNEL_EXEC', which is not exported.
+USE_EXTERN_PAGE_KERNEL_EXEC ?= 0
+USE_EXTERN_PAGE_KERNEL_EXEC_DETECT = 0$(shell test "`uname -m`" != x86_64 && >/dev/null grep 'unsigned long .*__PAGE_KERNEL_EXEC' /lib/modules/$(KERNEL_VERSION)/build/include/asm-x86/pgtable_32.h && echo -n 1)
+
 # vvv Dat: used by kbuild ($RMTIMEUP_EXTRA_CFLAGS isn't)
 # vvv Dat: -Werror is to catch function prototype mismatches (e.g. vfs_rename)
 EXTRA_CFLAGS= \
@@ -41,6 +46,7 @@ EXTRA_CFLAGS= \
     -DUSE_SPRINT_SYMBOL=$(USE_SPRINT_SYMBOL) \
     -DUSE_VFS_CONST_ARG=$(USE_VFS_CONST_ARG) \
     -DUSE_MODULE_OWNER=$(USE_MODULE_OWNER) \
+    -DUSE_EXTERN_PAGE_KERNEL_EXEC=$(USE_EXTERN_PAGE_KERNEL_EXEC) \
     -Werror -DRMTIMEUP_VERSION=\"$(RMTIMEUP_VERSION)\"
 #"
 
@@ -57,6 +63,7 @@ all:
 	    USE_SPRINT_SYMBOL=$(USE_SPRINT_SYMBOL_DETECT) \
 	    USE_VFS_CONST_ARG=$(USE_VFS_CONST_ARG_DETECT) \
 	    USE_MODULE_OWNER=$(USE_MODULE_OWNER_DETECT) \
+	    USE_EXTERN_PAGE_KERNEL_EXEC=$(USE_EXTERN_PAGE_KERNEL_EXEC_DETECT) \
 	    modules
 
 clean:

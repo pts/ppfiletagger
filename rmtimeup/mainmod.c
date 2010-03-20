@@ -45,12 +45,16 @@
 #include <linux/kallsyms.h>
 #include <linux/mount.h>
 
-#include <asm/pgtable_types.h>  // PAGE_KERNEL_EXEC
+#include <asm/pgtable.h>  // PAGE_KERNEL_EXEC
 #include <linux/vmalloc.h>
 
 MODULE_AUTHOR("Peter Szabo");
 MODULE_DESCRIPTION("rmtimeup "RMTIMEUP_VERSION" recursive filesystem change notify");
 MODULE_LICENSE("GPL");
+
+#ifndef USE_EXTERN_PAGE_KERNEL_EXEC
+#  define USE_EXTERN_PAGE_KERNEL_EXEC 0
+#endif
 
 #ifndef USE_EXTRA_VFSMNT
 #  define USE_EXTRA_VFSMNT 0
@@ -557,11 +561,15 @@ static int set_hook(char *orig_function, char *replacement_function,
 #if USE_SPRINT_SYMBOL
 /** Return pointer to kernel symbol with name, which is at most 32768 bytes
  * away from `nearby' -- or NULL if not found.
+ *
+ * @param name must be a symbol name, e.g. "do_mount"
+ * @param nearby must be an exported symbol (without quotes), e.g. mnt_pin
  */
-static __always_inline char *my_lookup_name(char *name, char *nearby) {
+static __always_inline char *my_lookup_name_detail(
+    char *name, void *nearby, unsigned long range, unsigned long step) {
   unsigned long lbase = (unsigned long)nearby, l;
-  unsigned long lmin = lbase <= 32768 ? 0 : lbase - 32768;
-  unsigned long lmax = lbase + 32768 < lbase ? 0UL - 1 : lbase + 32768;
+  unsigned long lmin = lbase <= range ? 0 : lbase - range;
+  unsigned long lmax = lbase + range < lbase ? 0UL - 1 : lbase + range;
   long m;
   char buffer[KSYM_SYMBOL_LEN];
   char nameat[64];
@@ -570,10 +578,7 @@ static __always_inline char *my_lookup_name(char *name, char *nearby) {
   nameat[sizeof(nameat) - 1] = '\0';
   nameatlen = strlen(nameat) + 3;
   strcpy(nameat + nameatlen - 3, "+0x");
-  /* We assume that the function machine code is at least 64 bytes long.
-   * set_kernel_text_ro() is exactly 64 bytes long.
-   */
-  for (l = lmin; l <= lmax; l += 64) {
+  for (l = lmin; l <= lmax; l += step) {
     sprint_symbol(buffer, l);
     /* Now buffer is something like "do_mount+0xf1..." */
     if (0 == strncmp(buffer, nameat, nameatlen)) {
@@ -583,8 +588,17 @@ static __always_inline char *my_lookup_name(char *name, char *nearby) {
   }
   return NULL;  /* not found */
 }
+
+static __always_inline char *my_lookup_name(char *name, void *nearby) {
+  /* We assume that the function machine code is at least 64 bytes long, so
+   * we set step to 64.
+   * set_kernel_text_ro() is exactly 64 bytes long.
+   */
+  return my_lookup_name_detail(name, nearby, /*range:*/32768, /*step:*/64);
+}
 #else
-static __always_inline char *my_lookup_name(char *name, char *nearby) {
+static __always_inline char *my_lookup_name(char *name, void *nearby) {
+  (void)nearby;
   return (char*)kallsyms_lookup_name(name);
 }
 #endif
@@ -616,7 +630,7 @@ static __always_inline char *my_lookup_name(char *name, char *nearby) {
 
 #define SETUP_HOOK_KALLSYMS(function_name, nearby, i) \
   ({ \
-    function_name##__anchor.orig_function = (void*)my_lookup_name(#function_name, (char*)nearby); \
+    function_name##__anchor.orig_function = (void*)my_lookup_name(#function_name, (void*)nearby); \
     SETUP_HOOK(function_name, i); \
   })
 
@@ -850,9 +864,35 @@ static char undo_all_hooks(void) {
 static void (*my_set_kernel_text_ro)(void) = NULL;
 static void (*my_set_kernel_text_rw)(void) = NULL;
 
+#if USE_EXTERN_PAGE_KERNEL_EXEC
+unsigned long long *my_page_kernel_exec = NULL;
+#undef  __PAGE_KERNEL_EXEC
+#define __PAGE_KERNEL_EXEC (*my_page_kernel_exec)
+#endif
+
 static int init_hooks(void) {
   unsigned long irq_flags;
   int error;
+
+#if USE_EXTERN_PAGE_KERNEL_EXEC
+  if (my_page_kernel_exec == NULL) {
+    if (sizeof(__PAGE_KERNEL) != sizeof(*my_page_kernel_exec)) {
+      printk(KERN_ERR "%s: size mismatch: sizeof(__PAGE_KERNEL_EXEC)=%d "
+             " sizeof(__PAGE_KERNEL)=%d", THIS_MODULE->name,
+             sizeof(*my_page_kernel_exec), sizeof(__PAGE_KERNEL));
+      error = -EINVAL;
+      goto do_exit;
+    }
+    my_page_kernel_exec = (unsigned long long*)my_lookup_name_detail(
+        "__PAGE_KERNEL_EXEC", &__PAGE_KERNEL, 64, 4);
+    if (my_page_kernel_exec == NULL) {
+      printk(KERN_ERR "%s: missing __PAGE_KERNEL_EXEC\n", THIS_MODULE->name);
+      error = -ENOKEY;
+      goto do_exit;
+    }
+  }
+#endif
+
   if (NULL == (rmtimeup_hooks = __vmalloc(
       MAX_RMTIMEUP_HOOKS * sizeof*rmtimeup_hooks, GFP_KERNEL,
       PAGE_KERNEL_EXEC))) {
@@ -920,9 +960,9 @@ static int __init init_rmtimeup(void) {
   struct proc_dir_entry *p;
   int ret;
 
-  printk(KERN_INFO "%s: version "RMTIMEUP_VERSION" loaded\n",
+  printk(KERN_INFO "%s: version "RMTIMEUP_VERSION" loading\n",
       THIS_MODULE->name);
-  PRINT_DEBUG("hello, version "RMTIMEUP_VERSION" loaded\n%s", "");
+  PRINT_DEBUG("hello, version "RMTIMEUP_VERSION" loading\n%s", "");
 
   {
     extern void ioremap_nocache(void);
@@ -943,6 +983,8 @@ static int __init init_rmtimeup(void) {
   SETPROC_OPS(p, rmtimeup_event_ops);
 
   ret = 0;
+  printk(KERN_INFO "%s: version "RMTIMEUP_VERSION" loaded OK\n",
+      THIS_MODULE->name);
  done:
   return ret;
 }
