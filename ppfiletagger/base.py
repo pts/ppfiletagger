@@ -86,13 +86,13 @@ class RootInfo(object):
         (lambda match: self.PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
         self.ValueToWordListc(value))
 
-  def QueryToWordData(self, query):
-    """Return SQLite fulltext query converted to filewords.worddata."""
-    if not isinstance(query, str): raise TypeError
-    return re.sub(
-        self.PTAG_TO_SQLITEWORD_RE,
-        (lambda match: self.PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
-        query)
+def QueryToWordData(self, query):
+  """Return SQLite fulltext query converted to filewords.worddata."""
+  if not isinstance(query, str): raise TypeError
+  return re.sub(
+      RootInfo.PTAG_TO_SQLITEWORD_RE,
+      (lambda match: self.PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
+      query)
 
 # TODO: move this to a test
 assert 'i said: hello wonderful_world 0123456789' == RootInfo(db=None, root_dir=None, last_scan_at=None, tagdb_name=None).ValueToWordListc('  I said:\tHello,  Wonderful_World! 0123456789\r\n')
@@ -122,13 +122,17 @@ class GlobalInfo(object):
   def CloseDBs(self):
     # Close old roots in case a different filesystem was mounted.
     for scan_root_dir in sorted(self.roots):
+      if scan_root_dir == '.empty':
+        continue
       db = self.roots[scan_root_dir].db
       if db is not None:
         db.close()
         self.roots[scan_root_dir].db = None
 
   def ReopenDBs(self, do_close_first):
-    for scan_root_dir in self.roots:
+    for scan_root_dir in sorted(self.roots):
+      if scan_root_dir == '.empty':
+        continue
       db = self.roots[scan_root_dir].db
       if db is not None:
         if not do_close_first: continue
@@ -193,7 +197,7 @@ class GlobalInfo(object):
     good_devs = {}
     try:
       for line in f:
-        dev, dir, type, flags, mode1, mode2 = line.strip('\r\n').split(' ', 5)
+        dev, dir, fstype, flags, mode1, mode2 = line.strip('\r\n').split(' ', 5)
         dirs.add(dir)
 
         dir_slash = dir
@@ -201,14 +205,17 @@ class GlobalInfo(object):
         flags_comma = ',%s,' % flags
         if ('/' not in dev or  # NFS and CIFS devs do have '/'.
             ',rw,' not in flags_comma or
+            fstype in ('proc', 'sysfs', 'securityfs', 'fusectl', 'debugfs',
+                       'usbfs', 'iso9660', 'vmblock', 'rpc_pipefs',
+                       'devpts') or
             dir_slash.startswith('/proc/') or
             dir_slash.startswith('/dev/') or
             dir_slash.startswith('/sys/')):
             # Imp: ignore --bind
           continue
-        # Good values for type: +ext2 +ext3 +ext4 +jfs +xfs +reiserfs +nfs +ntfs
+        # Good values for fstype: +ext2 +ext3 +ext4 +jfs +xfs +reiserfs +nfs +ntfs
         # +vfat +reiser4 +cifs +fuseblk (NTFS-3g) +fuse
-        # Bad values for type:  -devpts -rootfs -sysfs -tmpfs -nfsd -rpc_pipefs
+        # Bad values for type:  -devpts -rootfs -sysfs (?)-tmpfs -nfsd -rpc_pipefs
         # -usbfs -proc -procfs  (FreeBSD) fuse.gvfs-fuse-daemon -fusectl -iso9660
         # -securityfs -vmblock (vmware host)
 
@@ -261,10 +268,15 @@ class GlobalInfo(object):
     self.CloseDBs()
 
     self.roots.clear()
-    for scan_root_dir in scan_root_dirs:
+    for scan_root_dir in sorted(scan_root_dirs):
+      if scan_root_dir == '.empty':
+        continue
       self.roots[scan_root_dir] = self.root_info_class(
           db=None, root_dir=scan_root_dir, last_scan_at=None,
           tagdb_name=self.TAGDB_NAME)
+
+    if not self.roots:  # Add placeholder so it won't be empty
+      self.roots['.empty'] = None
 
     self.ReopenDBs(do_close_first=True)
 
