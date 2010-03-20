@@ -19,6 +19,15 @@ PRODUCT = rfsdelta-$(VERSION)
 USE_EXTRA_VFSMNT ?= 0
 USE_EXTRA_VFSMNT_DETECT = 0$(shell >/dev/null grep 'int vfs_unlink()*.*struct vfsmount' /lib/modules/$(KERNEL_VERSION)/build/include/linux/fs.h && echo -n 1)
 
+# This is needed for the Ubuntu Karmic 2.6.31-20-generic-pae kernel.
+USE_VFS_CONST_ARG ?= 0
+USE_VFS_CONST_ARG_DETECT = 0$(shell >/dev/null grep 'int vfs_removexattr()*.*const' /lib/modules/$(KERNEL_VERSION)/build/include/linux/xattr.h && echo -n 1)
+
+# This is needed (owner field not present anymore)
+# for the Ubuntu Karmic 2.6.31-20-generic-pae kernel.
+USE_MODULE_OWNER ?= 1
+USE_MODULE_OWNER_DETECT = 0$(shell >/dev/null grep 'struct module[ *]*owner;' /lib/modules/$(KERNEL_VERSION)/build/include/linux/proc_fs.h && echo -n 1)
+
 # This is needed for the Ubuntu Hardy 2.6.24-22-generic kernel.
 # Since that kernel doesn't have EXPORT_SYMBOL(kallsyms_lookup_name),
 # we have to emulate that using EXPORT_SYMBOL(sprint_symbol).
@@ -27,7 +36,12 @@ USE_SPRINT_SYMBOL_DETECT = 0$(shell >/dev/null grep 'int sprint_symbol()*.*char'
 
 # vvv Dat: used by kbuild ($RMTIMEUP_EXTRA_CFLAGS isn't)
 # vvv Dat: -Werror is to catch function prototype mismatches (e.g. vfs_rename)
-EXTRA_CFLAGS=-DUSE_EXTRA_VFSMNT=$(USE_EXTRA_VFSMNT) -DUSE_SPRINT_SYMBOL=$(USE_SPRINT_SYMBOL) -Werror -DUSE_PTS=1 -DUSE_PTS_LINUXKERNEL=1 -DRMTIMEUP_VERSION=\"$(RMTIMEUP_VERSION)\"
+EXTRA_CFLAGS= \
+    -DUSE_EXTRA_VFSMNT=$(USE_EXTRA_VFSMNT) \
+    -DUSE_SPRINT_SYMBOL=$(USE_SPRINT_SYMBOL) \
+    -DUSE_VFS_CONST_ARG=$(USE_VFS_CONST_ARG) \
+    -DUSE_MODULE_OWNER=$(USE_MODULE_OWNER) \
+    -Werror -DRMTIMEUP_VERSION=\"$(RMTIMEUP_VERSION)\"
 #"
 
 # vvv Dat: `-m' is for module
@@ -41,6 +55,8 @@ all:
 	make -C /lib/modules/$(KERNEL_VERSION)/build SUBDIRS=$(PWD) \
 	    USE_EXTRA_VFSMNT=$(USE_EXTRA_VFSMNT_DETECT) \
 	    USE_SPRINT_SYMBOL=$(USE_SPRINT_SYMBOL_DETECT) \
+	    USE_VFS_CONST_ARG=$(USE_VFS_CONST_ARG_DETECT) \
+	    USE_MODULE_OWNER=$(USE_MODULE_OWNER_DETECT) \
 	    modules
 
 clean:

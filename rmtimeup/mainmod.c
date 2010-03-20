@@ -45,6 +45,9 @@
 #include <linux/kallsyms.h>
 #include <linux/mount.h>
 
+#include <asm/pgtable_types.h>  // PAGE_KERNEL_EXEC
+#include <linux/vmalloc.h>
+
 MODULE_AUTHOR("Peter Szabo");
 MODULE_DESCRIPTION("rmtimeup "RMTIMEUP_VERSION" recursive filesystem change notify");
 MODULE_LICENSE("GPL");
@@ -64,6 +67,21 @@ MODULE_LICENSE("GPL");
 
 #ifndef USE_SPRINT_SYMBOL
 #  define USE_SPRINT_SYMBOL 0
+#endif
+
+#ifndef USE_VFS_CONST_ARG
+#  define USE_VFS_CONST_ARG 0
+#endif
+#if USE_VFS_CONST_ARG
+typedef const char *vfs_name_t;
+typedef const void *vfs_value_t;
+#else
+typedef char *vfs_name_t;
+typedef void *vfs_value_t;
+#endif
+
+#ifndef USE_MODULE_OWNER
+#  define USE_MODULE_OWNER 0
 #endif
 
 #ifndef SETPROC_OPS
@@ -509,6 +527,8 @@ static int set_hook(char *orig_function, char *replacement_function,
  * warning: initialization from incompatible pointer type
  */
 #define DEFINE_ANCHOR(return_type, function_name, ...) \
+  /* Declare function to get a compile error on conflict. */ \
+  extern return_type function_name(__VA_ARGS__); \
   static return_type function_name##__repl(__VA_ARGS__); \
   static struct { \
     /* Call this within DEFINE_ANCHOR(foo):
@@ -550,8 +570,10 @@ static __always_inline char *my_lookup_name(char *name, char *nearby) {
   nameat[sizeof(nameat) - 1] = '\0';
   nameatlen = strlen(nameat) + 3;
   strcpy(nameat + nameatlen - 3, "+0x");
-  /* We assume that the function machine code is at least 128 bytes long. */
-  for (l = lmin; l <= lmax; l += 128) {
+  /* We assume that the function machine code is at least 64 bytes long.
+   * set_kernel_text_ro() is exactly 64 bytes long.
+   */
+  for (l = lmin; l <= lmax; l += 64) {
     sprint_symbol(buffer, l);
     /* Now buffer is something like "do_mount+0xf1..." */
     if (0 == strncmp(buffer, nameat, nameatlen)) {
@@ -573,6 +595,8 @@ static __always_inline char *my_lookup_name(char *name, char *nearby) {
  * without EXPORT_SYMBOL (such as do_mount and umount_tree).
  */
 #define DEFINE_ANCHOR_KALLSYMS(return_type, function_name, ...) \
+  /* Declare function to get a compile error on conflict. */ \
+  extern return_type function_name(__VA_ARGS__); \
   static return_type function_name##__repl(__VA_ARGS__); \
   static struct { \
     /* Call this within DEFINE_ANCHOR(foo):
@@ -729,7 +753,7 @@ DEFINE_ANCHOR(int, vfs_unlink,
 
 DEFINE_ANCHOR(int, vfs_setxattr,
               struct dentry *dentry VFSMNT_TARG(mnt),
-              char *name, void *value,
+              vfs_name_t name, vfs_value_t value,
               size_t size, int flags FILE_TARG(filp)) {
   /* corresponding command: setfattr -n user.foo -v bar t1.jpg */
   int prevret;
@@ -754,7 +778,7 @@ DEFINE_ANCHOR(int, vfs_setxattr,
 
 DEFINE_ANCHOR(int, vfs_removexattr,
               struct dentry *dentry VFSMNT_TARG(mnt),
-              char *name FILE_TARG(filp)) {
+              vfs_name_t name FILE_TARG(filp)) {
   /* corresponding command: setfattr -x user.foo t1.jpg */
   int prevret;
   struct timespec now;
@@ -794,6 +818,12 @@ DEFINE_ANCHOR_KALLSYMS(long, do_mount,
   return prevret;
 }
 
+/* since 2.6.31 (or earlier) the umount_tree() declaration is not exported,
+ * but its defined in the private header file fs/internal.h
+ */
+extern void umount_tree(struct vfsmount *mnt, int propagate,
+                        struct list_head *kill);
+
 DEFINE_ANCHOR_KALLSYMS(void, umount_tree,
               struct vfsmount *mnt, int propagate, struct list_head *kill) {
   PRINT_DEBUG("my umount_tree called\n%s", "");
@@ -817,15 +847,32 @@ static char undo_all_hooks(void) {
   return do_keep;
 }
 
+static void (*my_set_kernel_text_ro)(void) = NULL;
+static void (*my_set_kernel_text_rw)(void) = NULL;
+
 static int init_hooks(void) {
   unsigned long irq_flags;
   int error;
-  if (NULL == (rmtimeup_hooks = kmalloc(
-      MAX_RMTIMEUP_HOOKS * sizeof*rmtimeup_hooks, GFP_KERNEL))) {
+  if (NULL == (rmtimeup_hooks = __vmalloc(
+      MAX_RMTIMEUP_HOOKS * sizeof*rmtimeup_hooks, GFP_KERNEL,
+      PAGE_KERNEL_EXEC))) {
     error = -ENOMEM;
     goto do_exit;
   }
   memset(rmtimeup_hooks, '\0', MAX_RMTIMEUP_HOOKS * sizeof*rmtimeup_hooks);
+  /* Kernel 2.6.31-20 in Ubuntu Karmic disables write access to kernel code
+   * (e.g. see ``Write protecting the kernel text'' and ``Write protecting
+   * the kernel read-only data'' in dmesg(1)), but it provides
+   * set_kernel_text_rw() (enabled by CONFIG_DEGUG_RODATA=y), which we use
+   * here to make our modifications in SETUP_HOOK/set_hook.
+   * 
+   * set_kernel_text_rw() doesn't work when IRQs are disabled, so we don't
+   * do any locking here (wich is a little bit unsafe).
+   */
+  if (my_set_kernel_text_ro && my_set_kernel_text_rw) {
+    printk(KERN_INFO "%s: using set_kernel_text_rw()\n", THIS_MODULE->name);
+    my_set_kernel_text_rw();
+  }
   spin_lock_irqsave(&hooks_lock, irq_flags);  /* Imp: smaller lock */
   /* If you add hooks, don't forget to increase MAX_RMTIMEUP_HOOKS */
   if (0 != (error = SETUP_HOOK(vfs_rename, 0)) ||
@@ -841,6 +888,8 @@ static int init_hooks(void) {
   error = 0;
  do_unlock:
   spin_unlock_irqrestore(&hooks_lock, irq_flags);
+  if (my_set_kernel_text_ro && my_set_kernel_text_rw)
+    my_set_kernel_text_ro();
  do_exit:
   return error;
 }
@@ -848,18 +897,22 @@ static int init_hooks(void) {
 static void exit_hooks(void) {
   char do_keep;
   unsigned long irq_flags;
+  if (my_set_kernel_text_ro && my_set_kernel_text_rw)
+    my_set_kernel_text_rw();
   /* TODO: add mutex in case of removing the module while a vfs_rename is
    * in progress. lock_kernel() or preempt.h? Is this possible?
    */
   spin_lock_irqsave(&hooks_lock, irq_flags);  /* Imp: smaller lock */
   do_keep = undo_all_hooks();
   spin_unlock_irqrestore(&hooks_lock, irq_flags);
+  if (my_set_kernel_text_ro && my_set_kernel_text_rw)
+    my_set_kernel_text_ro();
   if (do_keep) {
     /* Keep rmtimeup_hooks if we couldn't unhook everything. */
     printk(KERN_WARNING "%s: %d bytes leaked when unloading\n",
         THIS_MODULE->name, sizeof*rmtimeup_hooks);
   } else {
-    kfree(rmtimeup_hooks);
+    vfree(rmtimeup_hooks);
   }
 }
 
@@ -870,13 +923,23 @@ static int __init init_rmtimeup(void) {
   printk(KERN_INFO "%s: version "RMTIMEUP_VERSION" loaded\n",
       THIS_MODULE->name);
   PRINT_DEBUG("hello, version "RMTIMEUP_VERSION" loaded\n%s", "");
-  
+
+  {
+    extern void ioremap_nocache(void);
+    my_set_kernel_text_ro =
+        (void*)my_lookup_name("set_kernel_text_ro", (char*)ioremap_nocache);
+    my_set_kernel_text_rw =
+        (void*)my_lookup_name("set_kernel_text_rw", (char*)ioremap_nocache);
+  }
+
   ret = init_hooks();
   if (ret) goto done;
 
   p = create_proc_entry("rmtimeup-event", 0444, NULL);  /* for all users */
   if (!p) { ret = -ENOMEM; goto done; }
+#if USE_MODULE_OWNER
   p->owner = THIS_MODULE;
+#endif
   SETPROC_OPS(p, rmtimeup_event_ops);
 
   ret = 0;
