@@ -1,0 +1,13 @@
+#! /usr/bin/python2.4
+#
+# rmtimescan: command line utility for ppfiletagger.scan
+# by pts@fazekas.hu at Sat Mar 20 13:03:26 CET 2010
+#
+
+if __name__ == '__main__':
+  import logging
+  import ppfiletagger.scan
+  import sys
+  logging.BASIC_FORMAT = '[%(created)f] %(levelname)s %(message)s'
+  logging.root.setLevel(logging.INFO)  # Prints INFO, but not DEBUG.
+  sys.exit(ppfiletagger.scan.main(sys.argv) or 0)

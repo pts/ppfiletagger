@@ -24,7 +24,25 @@
 import datetime
 import time
 
-from pysqlite2._sqlite import *
+
+#### pts ####
+mname = '.'.join(__name__.split('.')[:-1])
+sname = mname + '._sqlite'
+if sname not in __import__('sys').modules:
+  import sys
+  import os
+  old_path = sys.path[:]
+  sys.path[:] = [os.path.dirname(os.path.dirname(__file__))]
+  assert 'pysqlite2._sqlite' not in sys.modules
+  try:
+    sys.modules[sname] = __import__('pysqlite2._sqlite', '', '', ('',))
+  finally:
+    sys.path[:] = old_path
+
+_sqlite = sys.modules[sname]
+for name in dir(_sqlite):
+  if not name.startswith('_'):
+    globals()[name] = getattr(_sqlite, name)
 
 paramstyle = "qmark"
 

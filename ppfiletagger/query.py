@@ -1,10 +1,24 @@
 #! /usr/bin/python2.4
 # by pts@fazekas.hu at Sun Jan 11 05:56:03 CET 2009
 
+"""Query (search by tag) tool for ppfiletagger.
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+"""
+
+__author__ = 'pts@fazekas.hu (Peter Szabo)'
+
 import logging
 import sys
-
-from pts.rmtimetools import base
+from ppfiletagger import base
 
 
 class RootInfo(base.RootInfo):
@@ -28,11 +42,10 @@ class GlobalInfo(base.GlobalInfo):
 
   root_info_class = RootInfo
 
-  def GenerateTagsResponse(self, tags, xattr='tags'):
+  def GenerateTagsResponse(self, tags):
     # TODO: Print warning if tagdb is not up to date.
     # TODO: Accept search_root_dir argument.
     if not isinstance(tags, str): raise TypeError
-    if not isinstance(xattr, str): raise TypeError
     wordlistc = None
     if not self.roots:
       self.OpenTagDBs(self.ParseMounts())
@@ -43,11 +56,11 @@ class GlobalInfo(base.GlobalInfo):
     for scan_root_dir in self.roots:
       root_info = self.roots[scan_root_dir]
       if wordlistc is None:
-        wordlistc = root_info.ValueToWordData(tags)
+        wordlistc = root_info.QueryToWordData(tags)
       root_slash = root_info.root_dir
       if not root_slash.endswith('/'): root_slash += '/'
       for dir, entry, value in root_info.GenerateTagsResponse(
-          wordlistc=wordlistc, xattr=xattr):
+          wordlistc=wordlistc, xattr=root_info.FILEWORDS_XATTRS[0]):
         if dir == '.':
           filename = root_slash + entry
         else:
@@ -55,13 +68,20 @@ class GlobalInfo(base.GlobalInfo):
         yield filename, value
 
 def main(argv):
+  do_name_only = False
+  if len(argv) > 1 and argv[1] == '-n':
+    del argv[1]
+    do_name_only = True
   if len(argv) <= 1:
-    sys.stderr.write("Usage: %s <tag1> [...]  # query `and'\n" % argv[0])
+    sys.stderr.write("Usage: %s [-n] <tag1> [...]  # query `and'\n" % argv[0])
     return 1
   tags = ' '.join(argv[1:])
   count = 0
   for filename, taglistc in GlobalInfo().GenerateTagsResponse(tags=tags):
-    print repr((filename, taglistc))
+    if do_name_only:
+      print filename
+    else:
+      print repr((filename, taglistc))
     count += 1
   if count:
     logging.info('found result count=%d tags=%r' % (count, tags))

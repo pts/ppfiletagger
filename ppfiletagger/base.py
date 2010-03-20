@@ -1,13 +1,28 @@
 #! /usr/bin/python2.4
 # by pts@fazekas.hu at Sun Jan 11 05:43:18 CET 2009
 
+"""Functions and classes used by ppfiletagger tools.
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+"""
+
+__author__ = 'pts@fazekas.hu (Peter Szabo)'
+
 import errno
 import logging
 import os
-import pysqlite2.dbapi2 as sqlite
 import re
 import stat
 import time
+from ppfiletagger.good_sqlite import sqlite
 
 
 def IsSubPath(a, ab):
@@ -29,7 +44,7 @@ class RootInfo(object):
 
   __slots__ = ['db', 'root_dir', 'last_scan_at', 'tagdb_name']
 
-  FILEWORDS_XATTRS = ('tags',)
+  FILEWORDS_XATTRS = ('mmfs.tags',)
   """Sequence of user.* extended attribute names to be added to the full-text
   index (table filewords)."""
 
@@ -68,6 +83,14 @@ class RootInfo(object):
         self.PTAG_TO_SQLITEWORD_RE,
         (lambda match: self.PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
         self.ValueToWordListc(value))
+
+  def QueryToWordData(self, query):
+    """Return SQLite fulltext query converted to filewords.worddata."""
+    if not isinstance(query, str): raise TypeError
+    return re.sub(
+        self.PTAG_TO_SQLITEWORD_RE,
+        (lambda match: self.PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
+        query)
 
 # TODO: move this to a test
 assert 'i said: hello wonderful_world 0123456789' == RootInfo(db=None, root_dir=None, last_scan_at=None, tagdb_name=None).ValueToWordListc('  I said:\tHello,  Wonderful_World! 0123456789\r\n')

@@ -68,18 +68,18 @@ in them upon the incremental rescanning.
 Add metadata to your files' extended attributes. For example:
 
   $ setfattr -n user.xattr1 -v value1 /media/big/my/album/photo01.jpg
-  $ setfattr -n user.tags   -v '2009 nature Europe' /media/big/my/album/*.jpg
-  $ setfattr -n user.tags   -v 'calendar 2009' /media/big2/calendar09.txt
+  $ setfattr -n user.mmfs.tags   -v '2009 nature Europe' /media/big/my/a/*.jpg
+  $ setfattr -n user.mmfs.tags   -v 'calendar 2009' /media/big2/calendar09.txt
 
-Please note that the extended attribute `user.tags' has special sigificance:
-it is the whitespace-separated list of tags (keywords) associated to the
-file. You can use the characters a-zA-Z0-9_: in tag names. Tag names are
-case preserving, but tag search is case insensitive. See more information
-about tag syntax later.
+Please note that the extended attribute `user.mmfs.tags' has special
+sigificance: it is the whitespace-separated list of tags (keywords)
+associated to the file.  You can use the characters a-zA-Z0-9_: in tag
+names.  Tag names are case preserving, but tag search is case insensitive. 
+See more information about tag syntax later.
 
 Add some tags for all files you want to search for. Specify them using
-`setfattr -n user.tags -v ...', as outlined above. You will be able to add
-more tags or change tags later.
+`setfattr -n user.mmfs.tags -v ...', as outlined above.  You will be able to
+add more tags or change tags later.
 
 For each filesystem you want to build the index for, create the empty files
 named `tags.sqlite' and `tags.sqlite-journal', and chown them properly.
@@ -122,8 +122,9 @@ Search for files by tag using rmtimequery.py:
 
 You specify a cunjunction (``and'') of case insensitive tags in the
 rmtimequery.py command line, and rmtimequery.py lists very quickly all files
-(and all associated tags) having _all_ the specified tags in their user.tags
-extended attribute. The files are listed in no particular order.
+(and all associated tags) having _all_ the specified tags in their
+user.mmfs.tags extended attribute.  The files are listed in no particular
+order.
 
 If you have the rmtimeup.ko loaded, then start `rmtimescan.py --forever' in
 a new terminal window, like one of those:
@@ -145,7 +146,7 @@ the incremental rescan in rmtimescan.py may not find some of your changed
 extended attributes.
 
 The index in the tags.sqlite database contains all extended attributes, but
-only user.tags is searchable so far.
+only user.mmfs.tags is searchable so far.
 
 Copyright
 ~~~~~~~~~

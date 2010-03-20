@@ -1,20 +1,33 @@
 #! /usr/bin/python2.4
 # by pts@fazekas.hu at Wed Jan  7 06:22:51 CET 2009
-#
-# * The scanner should not be run as root (to restrict the effects of
-#   security vulnerabilities).
+
+"""Scanner tool to build tags.sqlite files of ppfiletagger.
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+The scanner should not be run as root (to restrict the effects of
+security vulnerabilities).
+"""
+
+__author__ = 'pts@fazekas.hu (Peter Szabo)'
 
 import errno
 import logging
 import math
 import os
-import pysqlite2.dbapi2 as sqlite
 import select
 import stat
 import time
-import xattr
-
-from pts.rmtimetools import base
+from ppfiletagger.good_xattr import xattr
+from ppfiletagger import base
 
 
 class StackEntry(object):
@@ -326,7 +339,8 @@ class RootInfo(base.RootInfo):
                 (fn, dirscan_count, dirskip_count,
                  update_count, insert_count, delete_count))
           try:
-            st = os.stat(fsfn)
+            # Don't follow symbolic links.
+            st = os.lstat(fsfn)
           except OSError, e:
             # str(e) contains the filename as well
             logging.info('cannot stat: %s' % e)
