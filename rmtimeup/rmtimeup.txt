@@ -1,11 +1,19 @@
 README for rmtimeup
 """""""""""""""""""
-rmtimeup is a Linux i386 (x86) 32-bit kernel module which updates the
-mtime of all ancestor directories for all interesting file operations:
-rename, unlink, link, setxattr on files. To do this, it hooks some kernel
-functions (e.g. vfs_rename, vfs_link). rmtimeup can be used
-as a component of a local filesystem indexing framework (similar to Beagle,
-rlocate and movemetafs).
+rmtimeup is a Linux i386 (x86) 32-bit kernel module which updates the mtime
+of all ancestor directories for all interesting file operations: rename,
+unlink, link, setxattr and removexattr on files. To do this, it hooks some
+kernel functions (e.g. vfs_rename, vfs_link). rmtimeup can be used as a
+component for fast incremental updates of a local filesystem indexing
+(tagging) framework. The framework ppfiletagger already uses rmtimeup.
+
+Indexing framework  Notification mechanism  Drawback, limitation
+-----------------   ----------------------  --------------------
+ppfiletagger        rmtimeup.ko             hacky implementation (disasm)
+movemetafs          rfsdelta.ko             doesn't work kernels since 2009
+rlocate             rlocate.ko              doesn't with kernels since 2009
+Beagle              inotify                 slow since no recursive notify
+---                 fanotify                kernel patching needed
 
 TODO: write this README
 
@@ -16,7 +24,41 @@ rmtimeup needs:
 * A Linux system running kernel 2.6 on i386 (x86) 32-bit architecture.
   Other architectures, including 64-bit (x86-64, amd64, ia64) are not
   supported. uname -a should print Linux, 2.6.*, i[3456]86, but not x86_64.
+  rmtimeup.ko has been tested and found working on:
+** Debian Etch x86
+** Debian Lenny x86 2.6.31.5
+** Debian Lenny x86 2.6.26-2-686
+** Ubuntu Hardy x86 2.6.24-27-generic
+** Ubuntu Karmic x86 2.6.31-20-generic-pae
 * Kernel loadable module support (LKM, CONFIG_MODULES=y).
+
+How does it work
+~~~~~~~~~~~~~~~~
+rmtimeup hooks some kernel functions (such as vfs_rename, vfs_link and
+vfs_setxattr), and whenever those functions do a successful filesystem
+change _and_ there is a tags.sqlite file in the filesystem root directory,
+then rmtimeup propagates the mtime change up to the parent directory and
+further ancestors up to the filesystem root directory.
+
+rmtimeup installs its hooks by overwriting the first 5 bytes of the
+in-memory machine code of the relevant kernel functions (in the kernel `text'
+segment) with a jump instruction to the replacement functions in
+rmtimeup.ko. Each replacement function calls the original function, and if
+that succeeds, the replacement function may do some mtime propagation.
+
+Calling the original function is not possible when its first 5 bytes are
+overwritten. To solve this, rmtimeup copies the original first 5 bytes (plus
+some more until the next assembly instruction boundary) at hook installation
+time, and later it executes the original copied bytes followed by a jump to
+the rest of the function. This is not a general technique (because it
+doesn't work when the original function starts with a loop body), but it
+works for the few functions rmtimeup wants to hook.
+
+To find the assembly instruction boundary, rmtimeup has a simplified
+disassembler built in, which supports the most common machine instructions
+in function headers (such as PUSH EBP) for 32-bit i386. To port rmtimeup to
+other architectures, one has to port the disassembler, and figure out who
+the most common function starting instructions are.
 
 What could be done with a kernel patch
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -24,32 +66,33 @@ It would be possible to prepare a kernel patch, which would relax the
 system requirements:
 
 * Any architecture instead of 32-bit i386.
-* No disassembler.
+* Disassembly and in-mememory kernel code patching won't be required.
 
 Please contact me if you really need that kernel patch (I haven't written it
 yet).
+
+The reason why there is no kernel patch is that most desktop Linux users
+don't want to download, patch and recompile their kernels, and maintain
+custom patches as they (or the Linux distribution) upgrade the kernel. But
+they would be happy to compile and install a kernel module, since that can
+be easily automated, and the user doesn't have to maintain the code.
 
 How to compile and load
 ~~~~~~~~~~~~~~~~~~~~~~~
 To compile and load rmtimeup, run these commands:
 
   $ sudo apt-get install gcc make linux-kernel-headers
-  $ ls -l rmtimeup.txt mainmod.c ud.c
+  $ ls -l rmtimeup.txt mainmod.c
   $ make
   $ sudo insmod ./rmtimeup.ko 
 
-If `make' gives you error messages like
+For permaent installation, do a
 
-  warning: initialization from incomatible pointer type
+  $ sudo bash -c 'make install'
+  $ sudo echo rmtimeup | sudo tee -a /etc/modules
 
-(such as with the Ubuntu Hardy 2.6.24-22-generic kernel), try this:
-
-  $ USE_EXTRA_VFSMNT=1 make
-
-Please not that Makefile has auto-detection for USE_EXTRA_VFSMNT built in
-so this should no longer be an issue.
-
-TODO: how to install permanently
+Please note that you have to compile and install for each kernel version you
+are using, even if your Linux distribution has upgraded your kernel.
 
 Copyright
 ~~~~~~~~~
