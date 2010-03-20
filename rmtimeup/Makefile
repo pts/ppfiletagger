@@ -7,6 +7,7 @@
 #
 
 # vvv Dat: override with `make KERNEL_VERSION=...'
+#     e.g. make KERNEL_VERSION=2.6.26-2-686
 KERNEL_VERSION = $(shell uname -r)
 RMTIMEUP_VERSION = 0.11
 PRODUCT = rfsdelta-$(VERSION)
@@ -34,10 +35,12 @@ USE_MODULE_OWNER_DETECT = 0$(shell >/dev/null grep 'struct module[ *]*owner;' /l
 USE_SPRINT_SYMBOL ?= 0
 USE_SPRINT_SYMBOL_DETECT = 0$(shell >/dev/null grep 'int sprint_symbol()*.*char' /lib/modules/$(KERNEL_VERSION)/build/include/linux/kallsyms.h && echo -n 1)
 
-# Ubuntu Hardy 2.6.24-27-generic kernel has
-# `unsigned long long __PAGE_KERNEL_EXEC', which is not exported.
+# Ubuntu Hardy 2.6.24-27-generic kernel has unexported
+# `unsigned long long __PAGE_KERNEL_EXEC' in include/asm-x86/pgtable_32.h .
+# Debian Lenny 2.6.26-2-686 kernel has unexported
+# `pteval_t __PAGE_KERNEL_EXEC' in include/asm-x86/pgtable.h
 USE_EXTERN_PAGE_KERNEL_EXEC ?= 0
-USE_EXTERN_PAGE_KERNEL_EXEC_DETECT = 0$(shell test "`uname -m`" != x86_64 && >/dev/null grep 'unsigned long .*__PAGE_KERNEL_EXEC' /lib/modules/$(KERNEL_VERSION)/build/include/asm-x86/pgtable_32.h && echo -n 1)
+USE_EXTERN_PAGE_KERNEL_EXEC_DETECT = 0$(shell test "`uname -m`" != x86_64 && (grep 'unsigned long .*__PAGE_KERNEL_EXEC' /lib/modules/$(KERNEL_VERSION)/build/include/asm-x86/pgtable_32.h || grep 'pteval_t .*__PAGE_KERNEL_EXEC' /lib/modules/$(KERNEL_VERSION)/build/include/asm-x86/pgtable.h) >/dev/null 2>&1 && echo -n 1)
 
 # vvv Dat: used by kbuild ($RMTIMEUP_EXTRA_CFLAGS isn't)
 # vvv Dat: -Werror is to catch function prototype mismatches (e.g. vfs_rename)
