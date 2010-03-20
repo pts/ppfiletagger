@@ -97,7 +97,7 @@ an FTS3 full text index for the tags.
 
 Build the index for the first time using:
 
-  $ su rmtimescan -c 'rmtimetools/rmtimescan.py --slow'
+  $ su rmtimescan -c './rmtimescan.py --slow'
 
 This will take lots of time, longer than `ls -laR' on all the media
 filesystems, because it also fetches all user.* extended attributes in
@@ -108,13 +108,13 @@ rmtimeup.ko kernel module.
 
 Search for files by tag using rmtimequery.py:
 
-  $ rmtimetools/rtimequery.py 2009
+  $ ./rtimequery.py 2009
   ...
   ('/media/big/my/album/photo01.jpg', '2009 nature Europe')
   ('/media/big/my/album/photo02.jpg', '2009 nature Europe')
   ('/media/big2/calendar09.txt', 'calendar 2009')
   ...
-  $ rmtimetools/rtimequery.py 2009 naTUre
+  $ ./rtimequery.py 2009 naTUre
   ...
   ('/media/big/my/album/photo01.jpg', '2009 nature Europe')
   ('/media/big/my/album/photo02.jpg', '2009 nature Europe')
@@ -129,8 +129,8 @@ order.
 If you have the rmtimeup.ko loaded, then start `rmtimescan.py --forever' in
 a new terminal window, like one of those:
 
-  $ su rmtimescan -c 'rmtimetools/rmtimescan.py --forever'
-  $ su rmtimescan -c 'screen -S rmtimescan rmtimetools/rmtimescan.py --forever'
+  $ su rmtimescan -c './rmtimescan.py --forever'
+  $ su rmtimescan -c 'screen -S rmtimescan ./rmtimescan.py --forever'
 
 This will run incremental scanning forever in the background, getting
 notified by the rmtimeup.ko kernel module when extended attributes on a
@@ -173,7 +173,6 @@ TODO
 # TODO: investigate and get rid of this dmesg on umount /mnt/mini:
 #       VFS: Busy inodes after unmount of loop0. Self-destruct in 5 seconds.  Have a nice day...
 # TODO: add x86_64 64-bit support (including disassembly)
-# TODO: simplify disassembly, we don't need a full disassembler
 # TODO: use mtime/atime/ctime of fs root inode to detect that it has been
 #       mounted without this kernel module. atime detects ls /fsroot, but not
 #       any operatin on /fsroot/foo/bar.

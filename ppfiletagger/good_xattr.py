@@ -21,7 +21,7 @@ except ImportError:
 if version is None or version < '0.2.2':  # same check as in rdiff-backup
   try:
     # i386, Python 2.4
-    from ppfiletagger import xattr
+    from ppfiletagger.good import xattr
   except ImportError:
     pass
 del version

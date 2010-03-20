@@ -13,7 +13,6 @@ instead of:
 
 sqlite = None
 try:
-  # TODO(pts): Import from module root (not current dir).
   import pysqlite2.dbapi2 as sqlite
   sqlite.connect(':memory:').execute(
       'CREATE VIRTUAL TABLE v USING FTS3 (t TEXT)')
@@ -23,7 +22,9 @@ except (ImportError, SystemError,
 
 if sqlite is None:
   try:
-    import ppfiletagger.pysqlite2.dbapi2 as sqlite
+    # The `good' subdirectory here lets us load the system's pysqlite2 above.
+    # i386, Python 2.4
+    import ppfiletagger.good.pysqlite2.dbapi2 as sqlite
     sqlite.connect(':memory:').execute(
         'CREATE VIRTUAL TABLE v USING FTS3 (t TEXT)')
   except (ImportError, getattr(sqlite, 'OperationalError', None)), e:
