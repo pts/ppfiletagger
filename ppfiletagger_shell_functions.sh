@@ -5,7 +5,6 @@
 
 #** Adds or removes or sets tags.
 #** @example _mmfs_tag 'tag1 -tag2 ...' file1 file2 ...    # keep tag3
-#** @example _mmfs_tag '. tag1 -tag2 ...' file1 file2 ...  # remove tag3
 function _mmfs_tag() {
 	# Midnight Commander menu for movemetafs
 	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
@@ -18,18 +17,84 @@ use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_setxattr=&SYS_setxattr;
+my $SYS_getxattr=&SYS_getxattr;
 my($tags)=shift(@ARGV);
 $tags="" if !defined $tags;
-my $key_mode = "modified";
-my $key0 = "user.mmfs.tags.modify";
-($key_mode, $key0) = ("set", "user.mmfs.tags") if $tags =~ s@\A[.](?:\s+|\Z(?!\n))@@;
+my $key0 = "user.mmfs.tags";
+# Simple superset of UTF-8 words.
+my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
+                           [\xE0-\xEF] [\x80-\xBF]{2} |
+                           [\xF0-\xF4] [\x80-\xBF]{3}) /x;
+my $pmtag_re = qr/([-+]?)((?:$tagchar_re)+)/;
+# Same as WORDDATA_SPLIT_WORD_RE in ppfiletagger/base.py.
+my $split_word_re = qr/[^\s?!.,;\[\](){}<>"\']+/;
+# Read the tag list file (of lines <tag> or <tag>:<description> or
+# <space><comment> or #<comment>).
+my $F;
+my $tags_fn = "$ENV{HOME}/.ppfiletagger_tags";
+die "$0: error opening $tags_fn: $!\n" if !open $F, "<", $tags_fn;
+my $lineno = 0;
+my %known_tags;
+for my $line (<$F>) {
+  ++$lineno;
+  next if $line !~ /^([^\s#][^:\s]*)([\n:]*)/;
+  my $tag = $1;
+  if (!length($2)) {
+    print "\007syntax error in $tags_fn:$.: missing colon or newline\n"; exit 4;
+  }
+  if ($tag !~ /\A(?:$tagchar_re)+\Z(?!\n)/) {
+    # TODO(pts): Support -* here.
+    print "\007syntax error in $tags_fn:$lineno: bad tag syntax: $tag\n";
+    exit 5;
+  }
+  if (exists $known_tags{$tag}) {
+    print "\007syntax error in $tags_fn:$lineno: duplicate tag: $tag\n";
+    exit 6;
+  }
+  $known_tags{$tag} = 1;
+}
+die unless close $F;
+
+# Parse the +tag and -tag specification in the command line
+my @ptags;
+my @mtags;
+my @unknown_tags;
+for my $pmitem (split/\s+/,$tags) {
+  if ($pmitem !~ /\A$pmtag_re\Z(?!\n)/) {
+    # TODO(pts): Report this later.
+    print "\007bad tag syntax ($pmitem), skipping files\n"; exit 3;
+  }
+  my $tag = $2;
+  if (!exists $known_tags{$tag}) { push @unknown_tags, $tag }
+  elsif ($1 eq "-") { push @mtags, $tag }
+  else { push @ptags, $tag }
+}
+if (@unknown_tags) {
+  @unknown_tags = sort @unknown_tags;
+  print "\007unknown tags (@unknown_tags), skipping files\n"; exit 7;
+}
+{ my %ptags_hash = map { $_ => 1 } @ptags;
+  my @intersection_tags;
+  for my $tag (@mtags) {
+    push @intersection_tags, $tag if exists $ptags_hash{$tag};
+  }
+  if (@intersection_tags) {
+    @intersection_tags = sort @intersection_tags;
+    print "\007plus and minus tags (@intersection_tags), skipping files\n";
+    exit 8;
+  }
+}
 # vvv Dat: menu item is not run on a very empty string
-if ($tags!~/\S/ and $key0 eq "user.mmfs.tags.modify") {
+if (!@ptags and !@mtags) {
   print STDERR "no tags specified ($tags)\n"; exit 2
 }
+
+# Read file xattrs, apply updates, write file xattrs.
 print "to these files:\n";
-my $mmdir="$ENV{HOME}/mmfs/root/";
+#my $mmdir="$ENV{HOME}/mmfs/root/";
+my $mmdir="/";
 my $C=0;
+my $KC=0;
 my $EC=0;
 for my $fn0 (@ARGV) {
   my $fn=Cwd::abs_path($fn0);
@@ -37,8 +102,43 @@ for my $fn0 (@ARGV) {
   print "  $fn\n";
   # vvv Imp: move, not setfattr
   my $key = $key0; # Dat: must be in $var
-  my $got=syscall($SYS_setxattr, $fn, $key, $tags,
-    length($tags), 0);
+
+  my $oldtags="\0"x65535;
+  my $got=syscall($SYS_getxattr, $fn, $key, $oldtags,
+    length($oldtags), 0);
+  if ((!defined $got or $got<0) and !$!{ENODATA}) {
+    print "    error: $!\n"; $EC++; next
+  }
+  $oldtags=~s@\0.*@@s;
+  my $tmp = $oldtags;
+  my %old_tags_hash;
+  my @old_tags;
+  $tmp =~ s/($split_word_re)/ $old_tags_hash{$1} = @old_tags;
+                              push @old_tags, $1 /ge;
+  my @new_tags = @old_tags;
+  my %new_tags_hash = %old_tags_hash;
+  # Keep the original word order while updating.
+  for my $tag (@ptags) {
+    if (!exists $new_tags_hash{$tag}) {
+      $new_tags_hash{$tag} = @new_tags;
+      push @new_tags, $tag;
+    }
+  }
+  for my $tag (@mtags) {
+    if (exists $new_tags_hash{$tag}) {
+      $new_tags[$new_tags_hash{$tag}] = undef;
+    }
+  }
+  @new_tags = grep { defined $_ } @new_tags;
+  #print "@new_tags;;@old_tags\n"; next;
+  if (join("\0", @old_tags) eq join("\0", @new_tags)) {
+    $KC++; next
+  }
+  my $set_tags = join(" ", @new_tags);
+  $key=$key0;
+  # Setting $set_tags to the empty string removes $key on reiserfs3. Good.
+  $got=syscall($SYS_setxattr, $fn, $key, $set_tags,
+    length($set_tags), 0);
   if (!defined $got or $got<0) {
     if ("$!" eq "Cannot assign requested address") {
       print "\007bad tags ($tags), skipping other files\n"; exit
@@ -46,7 +146,8 @@ for my $fn0 (@ARGV) {
   } else { $C++ }
 }
 print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
-print "$key_mode tags of $C file@{[$C==1?q():q(s)]}: $tags\n"
+print "kept tags of $KC file@{[$C==1?q():q(s)]}: $tags\n" if $KC;
+print "modified tags of $C file@{[$C==1?q():q(s)]}: $tags\n"
 END
 }
 
@@ -64,7 +165,8 @@ use integer; use strict;  $|=1;
 require "syscall.ph";
 my $SYS_setxattr=&SYS_setxattr;
 my $SYS_getxattr=&SYS_getxattr;
-my $mmdir="$ENV{HOME}/mmfs/root/";
+#my $mmdir="$ENV{HOME}/mmfs/root/";
+my $mmdir="/";
 my $C=0;  my $EC=0;
 $0="_mmfs_unify_tags";
 die "Usage: $0 <file1> <file2>
@@ -82,7 +184,7 @@ sub get_tags($) {
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn, $key, $tags,
     length($tags), 0);
-  if (!defined $got or $got<0) {
+  if ((!defined $got or $got<0) and !$!{ENODATA}) {
     print "    error: $fn: $!\n"; $EC++;
     return "";
   } else {
@@ -172,7 +274,8 @@ $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
 print "to these files:\n";
-my $mmdir="$ENV{HOME}/mmfs/root/";
+#my $mmdir="$ENV{HOME}/mmfs/root/";
+my $mmdir="/";
 my $C=0;  my $EC=0;  my $HC=0;
 for my $fn0 (@ARGV) {
   my $fn=Cwd::abs_path($fn0);
@@ -183,7 +286,7 @@ for my $fn0 (@ARGV) {
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn, $key, $tags,
     length($tags), 0);
-  if (!defined $got or $got<0) {
+  if ((!defined $got or $got<0) and !$!{ENODATA}) {
     print "    error: $!\n"; $EC++
   } else {
     $tags=~s@\0.*@@s;
@@ -223,7 +326,8 @@ while ($spec=~/(\S+)/g) {
   }
 }
 die "_mmfs_grep: empty spec\n" if !%needplus and !%needminus;
-my $mmdir="$ENV{HOME}/mmfs/root/";
+#my $mmdir="$ENV{HOME}/mmfs/root/";
+my $mmdir="/";
 my $C=0;  my $EC=0;  my $HC=0;
 my $fn0;
 while (defined($fn0=<STDIN>)) {
@@ -236,7 +340,7 @@ while (defined($fn0=<STDIN>)) {
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn, $key, $tags,
     length($tags), 0);
-  if (!defined $got or $got<0) {
+  if ((!defined $got or $got<0) and !$!{ENODATA}) {
     print STDERR "tag error: $fn: $!\n"; $EC++
   } else {
     $tags=~s@\0.*@@s;
@@ -284,7 +388,8 @@ if (@ARGV and $ARGV[0]=~/\A--printfn=(.*)/s) { $printfn=$1; shift @ARGV }
 if (@ARGV and $ARGV[0] eq '--') { shift @ARGV }
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
 #print "to these files:\n";
-my $mmdir="$ENV{HOME}/mmfs/root/";
+#my $mmdir="$ENV{HOME}/mmfs/root/";
+my $mmdir="/";
 my $C=0;  my $EC=0;  my $HC=0;
 if (defined $printfn) {
   $printfn=Cwd::abs_path($printfn);
@@ -299,7 +404,7 @@ for my $fn0 (@ARGV) {
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn, $key, $tags,
     length($tags), 0);
-  if (!defined $got or $got<0) {
+  if ((!defined $got or $got<0) and !$!{ENODATA}) {
     print "    error: $!\n"; $EC++
   } else {
     $tags=~s@\0.*@@s;
@@ -319,31 +424,6 @@ END
 
 #** @example _mmfs_fixprincipal file1 file2 ...
 function _mmfs_fixprincipal() {
-	# Midnight Commander menu for movemetafs
-	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
-	# Imp: better mc menus
-	# Imp: make this a default option
-        # SUXX: prompt questions may not contain macros
-        # SUXX: no way to signal an error
-	perl -w -- - "$@" <<'END'
-use Cwd;
-$ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
-use integer; use strict;  $|=1;
-require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
-print "to these files:\n";
-my $mmdir0="$ENV{HOME}/mmfs/";
-my $mmdir="${mmdir0}root/";
-my $C=0;  my $EC=0;  my $HC=0;
-for my $fn0 (@ARGV) {
-  my $fn=Cwd::abs_path($fn0);
-  substr($fn,0,0)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
-  print "  $fn\n";
-  # vvv Imp: move, not setfattr
-  if (!rename($fn,$mmdir0."adm/fixprincipal/:any")) {
-    print "    error: $!\n"; $EC++
-  } else { $C++ }
-}
-print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
-print "fixed principal of $HC of $C file@{[$C==1?q():q(s)]}\n"
-END
+  echo "$0: error: _mmfs_fixprincipal not supported with ppfiletagger" >&2
+  return 1
 }
