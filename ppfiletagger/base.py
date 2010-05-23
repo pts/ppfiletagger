@@ -86,14 +86,6 @@ class RootInfo(object):
         (lambda match: self.PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
         self.ValueToWordListc(value))
 
-def QueryToWordData(self, query):
-  """Return SQLite fulltext query converted to filewords.worddata."""
-  if not isinstance(query, str): raise TypeError
-  return re.sub(
-      RootInfo.PTAG_TO_SQLITEWORD_RE,
-      (lambda match: self.PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
-      query)
-
 # TODO: move this to a test
 assert 'i said: hello wonderful_world 0123456789' == RootInfo(db=None, root_dir=None, last_scan_at=None, tagdb_name=None).ValueToWordListc('  I said:\tHello,  Wonderful_World! 0123456789\r\n')
 assert 'i said7 hello wonderful8world 01234566656463' == RootInfo(db=None, root_dir=None, last_scan_at=None, tagdb_name=None).ValueToWordData('I said: Hello,  Wonderful_World! 0123456789')

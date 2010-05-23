@@ -19,6 +19,7 @@ __author__ = 'pts@fazekas.hu (Peter Szabo)'
 import logging
 import re
 import sys
+import time
 from ppfiletagger import base
 
 
@@ -31,31 +32,34 @@ class RootInfo(base.RootInfo):
 
   __slots__ = ['db', 'root_dir', 'last_scan_at', 'tagdb_name']
 
-  def GenerateFullTextResponse(self, wordlistc, xattr):
+  def GenerateFullTextResponse(self, wordlistc, xattr, do_stat):
     """Generate (dir, entry, value) matches, in no particular order."""
+    if do_stat:
+      fields = ', mtime, size, nlink'
+    else:
+      fields = ''
     if wordlistc:
       # INDEXED BY applies only to fileattrs. The fulltext index in filewords
       # would be used (hopefully).
-      query = ('SELECT dir, entry, value '
+      query = ('SELECT dir, entry, value%s '
                'FROM filewords, fileattrs INDEXED BY fileattrs_xattr '
                'WHERE worddata MATCH (?) AND '
-               'xattr=? AND filewords.rowid=filewords_rowid',
+               'xattr=? AND filewords.rowid=filewords_rowid' % fields,
                (wordlistc, xattr))
     else:
-      query = ('SELECT dir, entry, value '
+      query = ('SELECT dir, entry, value%s '
                'FROM fileattrs INDEXED BY fileattrs_xattr '
-               'WHERE xattr=?', (xattr,))
+               'WHERE xattr=?' % fields, (xattr,))
     # TODO: Verify proper use of indexes. 
     for row in self.db.execute(*query):
-      yield (row[0], row[1], row[2])  # (dir, entry, value)
-
+      yield row
 
 def QueryToWordData(query):
   """Return SQLite fulltext query converted to filewords.worddata."""
   if not isinstance(query, str): raise TypeError
   return re.sub(
       RootInfo.PTAG_TO_SQLITEWORD_RE,
-      (lambda match: self.PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
+      (lambda match: RootInfo.PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
       query)
 
 
@@ -217,7 +221,7 @@ class GlobalInfo(base.GlobalInfo):
 
   root_info_class = RootInfo
 
-  def GenerateQueryResponse(self, query):
+  def GenerateQueryResponse(self, query, do_stat):
     # TODO: Print warning if tagdb is not up to date.
     # TODO: Accept search_root_dir argument.
     if not isinstance(query, str): raise TypeError
@@ -239,30 +243,83 @@ class GlobalInfo(base.GlobalInfo):
         root_info = self.roots[scan_root_dir]
         root_slash = root_info.root_dir
         if not root_slash.endswith('/'): root_slash += '/'
-        for dir, entry, tags in root_info.GenerateFullTextResponse(
-            wordlistc=matcher.wordlistc, xattr=root_info.FILEWORDS_XATTRS[0]):
-          if dir == '.':
+        for row in root_info.GenerateFullTextResponse(
+            wordlistc=matcher.wordlistc, xattr=root_info.FILEWORDS_XATTRS[0],
+            do_stat=do_stat):
+          dirname = row[0]
+          entry = row[1]
+          tags = row[2]
+          if dirname == '.':
             filename = root_slash + entry
           else:
-            filename = '%s%s/%s' % (root_slash, dir[2:], entry)
+            filename = '%s%s/%s' % (root_slash, dirname[2:], entry)
           if matcher.DoesMatch(filename, tags):
-            yield filename, tags
+            row = list(row)
+            row[1] = filename
+            yield row
+
+
+def Usage(argv0):
+  return ("Usage: %s [<flag>...] [-]<tag1> [...]  # query `and'\n\n" % argv0 +
+          'Flags:\n'
+          '--format=tuple\n'
+          '--format=name | -n\n'
+          '--format=mclist\n'
+          '--help\n'
+         ).rstrip()
+
 
 def main(argv):
-  do_name_only = False
-  if len(argv) > 1 and argv[1] == '-n':
-    del argv[1]
-    do_name_only = True
-  if len(argv) <= 1:
-    sys.stderr.write("Usage: %s [-n] [-]<tag1> [...]  # query `and'\n" % argv[0])
-    return 1
-  query = ' '.join(argv[1:])
-  count = 0
-  for filename, taglistc in GlobalInfo().GenerateQueryResponse(query=query):
-    if do_name_only:
-      print filename
+  use_format = 'tuple'
+  i = 1
+  while i < len(argv):
+    arg = argv[i]
+    if arg == '--':
+      i += 1
+      break
+    elif arg == '--format=tuple':
+      use_format = 'tuple'
+    elif arg in ('-n', '--format=name'):
+      use_format = 'name'
+    elif arg == '--format=mclist':  # Midnight Commander extfs list
+      use_format = 'mclist'
+    elif arg == '--help':
+      print >>sys.stderr, Usage(argv[0])
+      return 0
+    elif not arg.startswith('--'):
+      break
     else:
-      print repr((filename, taglistc))
+      print >>sys.stderr, Usage(argv[0])
+      print >>sys.stderr, 'error: unknown flag: %s' % arg
+      return 1
+    i += 1
+  if i == len(argv):
+    print >>sys.stderr, Usage(argv[0])
+    print >>sys.stderr, 'error: missing query'
+    return 1
+  query = ' '.join(argv[i:])
+  if use_format == 'mclist':
+    logging.root.setLevel(logging.WARN)  # Prints WARN and ERROR, but not INFO.
+
+  count = 0
+  for row in GlobalInfo().GenerateQueryResponse(
+      query=query, do_stat=(use_format == 'mclist')):
+    filename = row[1]
+    if use_format == 'name':
+      print filename
+    elif use_format == 'tuple':
+      print repr((filename, row[2]))
+    elif use_format == 'mclist':
+      mtime = row[3]
+      size = row[4]
+      nlink = row[5]
+      basename = filename[1 + filename.rfind('/'):]
+      # 4-digit year.
+      year, mon, day, hour, min, sec = time.localtime(mtime)[:6]
+      at = '%02d/%02d/%d %02d:%02d:%02d' % (mon, day, year, hour, min, sec)
+      # mc SUXX: it's not possible to point out to the real filesystem.
+      sys.stdout.write('lrwxrwxrwx %s root root %s %s %s -> %s\n' %
+                       (nlink, size, at, basename, filename))
     count += 1
   if count:
     logging.info('found result count=%d query=%r' % (count, query))
