@@ -74,4 +74,11 @@ clean:
 	rm -f Module.symvers core DEADJOE a.out
 
 install modules_install:
-	make -C /lib/modules/$(KERNEL_VERSION)/build M=$(PWD) modules_install
+	# Doesn't work on ubuntu make -C /lib/modules/$(KERNEL_VERSION)/build M=$(PWD) modules_install
+	cp rmtimeup.ko /lib/modules/$(KERNEL_VERSION)/kernel/
+	chown root.root /lib/modules/$(KERNEL_VERSION)/kernel/rmtimeup.ko
+	chmod 644 /lib/modules/$(KERNEL_VERSION)/kernel/rmtimeup.ko
+	depmod $(KERNEL_VERSION)
+
+
+

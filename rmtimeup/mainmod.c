@@ -33,6 +33,7 @@
 #include <linux/slab.h>
 #include <linux/list.h>
 #include <linux/poll.h>
+#include <linux/sched.h>  /* TASK_INTERRUPTIBLE */
 #include <asm/uaccess.h>
 #include <linux/proc_fs.h>
 #include <linux/moduleparam.h>
