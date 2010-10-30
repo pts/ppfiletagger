@@ -299,6 +299,44 @@ print "shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n"
 END
 }
 
+#** Like _mmfs_show, but only one file, and without extras. Suitable for
+#** scripting.
+#** @example _mmfs_get_tags file1
+function _mmfs_get_tags() {
+	# Midnight Commander menu for movemetafs
+	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
+	# Imp: better mc menus
+	# Imp: make this a default option
+        # SUXX: prompt questions may not contain macros
+        # SUXX: no way to signal an error
+	perl -w -- - "$@" <<'END'
+use Cwd;
+$ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
+use integer; use strict;  $|=1;
+require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
+#my $mmdir="$ENV{HOME}/mmfs/root/";
+my $mmdir="/";
+die "error: not a single filename specified\n" if @ARGV != 1;
+for my $fn0 (@ARGV) {
+  my $fn=Cwd::abs_path($fn0);
+  substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
+  my $key="user.mmfs.tags"; # Dat: must be in $var
+  my $tags="\0"x65535;
+  my $got=syscall($SYS_getxattr, $fn, $key, $tags,
+    length($tags), 0);
+  if ((!defined $got or $got<0) and !$!{ENODATA}) {
+    print STDERR "error: $fn0: $!\n";
+    exit(2);
+  } else {
+    $tags=~s@\0.*@@s;
+    exit(1) if 0 == length($tags);
+    print "$tags\n";
+    exit;
+  }
+}
+END
+}
+
 #** @example ls | _mmfs_grep '+foo -bar baz'  # anything with foo and baz, but without bar
 #** @example ls | _mmfs_grep '* -2004'        # anything with at least one tag, but without 2004
 #** @example ls | _mmfs_grep '*-foo *-bar'    # anything with at least one tag, which is not foo or bar
