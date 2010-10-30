@@ -20,6 +20,7 @@ require "syscall.ph"; my $SYS_setxattr=&SYS_setxattr;
 my $SYS_getxattr=&SYS_getxattr;
 my($tags)=shift(@ARGV);
 $tags="" if !defined $tags;
+$tags=~ s@^[.]/@@;  # Prepended my Midnight Commander.
 my $key0 = "user.mmfs.tags";
 # Simple superset of UTF-8 words.
 my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
@@ -59,12 +60,17 @@ die unless close $F;
 my @ptags;
 my @mtags;
 my @unknown_tags;
+my $is_overwrite = 0;
+$is_overwrite = 1 if $tags =~ s@\A\s*[.](?:\s+|\Z)@@;
 for my $pmitem (split/\s+/,$tags) {
   if ($pmitem !~ /\A$pmtag_re\Z(?!\n)/) {
     # TODO(pts): Report this later.
     print "\007bad tag syntax ($pmitem), skipping files\n"; exit 3;
   }
   my $tag = $2;
+  if ($is_overwrite and 0 != length($1)) {
+    print "\007unexpected sign ($pmitem), skipping files\n"; exit 9;
+  }
   if (!exists $known_tags{$tag}) { push @unknown_tags, $tag }
   elsif ($1 eq "-") { push @mtags, $tag }
   else { push @ptags, $tag }
@@ -85,7 +91,7 @@ if (@unknown_tags) {
   }
 }
 # vvv Dat: menu item is not run on a very empty string
-if (!@ptags and !@mtags) {
+if (!@ptags and !@mtags and !$is_overwrite) {
   print STDERR "no tags specified ($tags)\n"; exit 2
 }
 
@@ -100,23 +106,31 @@ for my $fn0 (@ARGV) {
   my $fn=Cwd::abs_path($fn0);
   substr($fn,0,0)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   print "  $fn\n";
-  # vvv Imp: move, not setfattr
-  my $key = $key0; # Dat: must be in $var
-
-  my $oldtags="\0"x65535;
-  my $got=syscall($SYS_getxattr, $fn, $key, $oldtags,
-    length($oldtags), 0);
-  if ((!defined $got or $got<0) and !$!{ENODATA}) {
-    print "    error: $!\n"; $EC++; next
+  if (not -f $fn) {
+    print "    error: not a file\n"; $EC++; next
   }
-  $oldtags=~s@\0.*@@s;
-  my $tmp = $oldtags;
+
+  my $key = $key0; # Dat: must be in $var
+  my $got;
   my %old_tags_hash;
   my @old_tags;
-  $tmp =~ s/($split_word_re)/ $old_tags_hash{$1} = @old_tags;
-                              push @old_tags, $1 /ge;
-  my @new_tags = @old_tags;
-  my %new_tags_hash = %old_tags_hash;
+  my $old_tags_str = '';
+
+  {
+    my $oldtags="\0"x65535;
+    $got = syscall($SYS_getxattr, $fn, $key, $oldtags,
+      length($oldtags), 0);
+    if ((!defined $got or $got<0) and !$!{ENODATA}) {
+      print "    error getting: $!\n"; $EC++; next
+    }
+    $oldtags=~s@\0.*@@s;
+    $old_tags_str = $oldtags;
+    $oldtags =~ s/($split_word_re)/ $old_tags_hash{$1} = @old_tags;
+                                    push @old_tags, $1 /ge;
+  }
+
+  my @new_tags = $is_overwrite ? () : @old_tags;
+  my %new_tags_hash = $is_overwrite ? () : %old_tags_hash;
   # Keep the original word order while updating.
   for my $tag (@ptags) {
     if (!exists $new_tags_hash{$tag}) {
@@ -137,6 +151,21 @@ for my $fn0 (@ARGV) {
   my $set_tags = join(" ", @new_tags);
   $key=$key0;
   # Setting $set_tags to the empty string removes $key on reiserfs3. Good.
+  #die "SET $set_tags\n";
+  #print "($set_tags)\n($old_tags_str)\n";
+  if (length($set_tags) > 0 and length($set_tags) < length($old_tags_str)) {
+    # There is a reiserfs bug on Linux 2.6.31: can't reliably set the
+    # extended attribute to a shorter value. Workaround: set it to the empty
+    # value (or remove it) first.
+    my $empty = '';  # Perl needs this so $empty is writable.
+    $got=syscall($SYS_setxattr, $fn, $key, $empty, 0, 0);
+    if (!defined $got or $got<0) {
+      print "    error: $!\n"; $EC++;
+      # Try to restore the original value;
+      syscall($SYS_setxattr, $fn, $key, $old_tags_str, len($old_tags_str), 0);
+      next;
+    }
+  }
   $got=syscall($SYS_setxattr, $fn, $key, $set_tags,
     length($set_tags), 0);
   if (!defined $got or $got<0) {
@@ -147,17 +176,19 @@ for my $fn0 (@ARGV) {
 }
 print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 print "kept tags of $KC file@{[$C==1?q():q(s)]}: $tags\n" if $KC;
-print "modified tags of $C file@{[$C==1?q():q(s)]}: $tags\n"
+print "modified tags of $C file@{[$C==1?q():q(s)]}: $tags\n";
+exit 1 if $EC;
 END
 }
 
+# !! Make sure this works with ppfiletagger.
 #** Makes both files have the union of the tags.
 #** Imp: also unify the descriptions.
 #** SUXX: needed 2 runs: modified 32, then 4, then 0 files (maybe because of
 #**   equivalence classes)
 #** @example _mmfs_unify_tags file1 file2
 #** @example echo "... 'file1' ... 'file2' ..." ... | _mmfs_unify_tags --stdin
-function _mmfs_unify_tags() {
+function _mmfs_unify_tags() {  # !! removexattr (not strictly needed)
 	perl -we '
 use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
@@ -179,7 +210,6 @@ sub get_tags($) {
   my $fn=Cwd::abs_path($_[0]);
   substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   #print "  $fn\n";
-  # vvv Imp: move, not setfattr
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn, $key, $tags,
@@ -195,12 +225,28 @@ sub get_tags($) {
 
 sub add_tags($$) {
   my($fn0,$tags)=@_;
+  die "error: bad add-tags syntax: $tags\n" if $tags =~ /[+-]/;
   my $fn=Cwd::abs_path($fn0);
   substr($fn,0,0)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   #print "  $fn\n";
-  my $key="user.mmfs.tags.modify"; # Dat: must be in $var
-  my $got=syscall($SYS_setxattr, $fn, $key, $tags,
-    length($tags), 0);
+  my $key="user.mmfs.tags"; # Dat: must be in $var
+
+  my $tags0="\0"x65535;
+  my $got=syscall($SYS_getxattr, $fn, $key, $tags0,
+    length($tags0), 0);
+  if ((!defined $got or $got<0) and !$!{ENODATA}) {
+    print "add-get-error: $fn: $!\n"; $EC++;
+  }
+  $tags0=~s@\0.*@@s;
+  my %tags0_hash = map { $_ => 1 } split(/\s+/, $tags0);
+  my $tags1 = $tags0;
+  for my $tag (split(/\s+/, $tags)) {
+    $tags1 .= " $tag" if not exists $tags0_hash{$tag};
+  }
+  $tags1 =~ s@\A\s+@@;
+  die if length($tags1) < length($tags);  # fail on reiserfs length problem
+  $got = syscall($SYS_setxattr, $fn, $key, $tags1,
+    length($tags1), 0);
   if (!defined $got or $got<0) {
     if ("$!" eq "Cannot assign requested address") {
       print "\007bad tags ($tags)\n"; $EC++;
@@ -225,8 +271,8 @@ sub unify_tags($$) {
   add_tags($fn0, $tags1) if $tags1 ne "";
   add_tags($fn1, $tags0) if $tags0 ne "";
   
-  my $tags0b=get_tags($fn0);
-  my $tags1b=get_tags($fn1);
+  my $tags0b=join " ", sort split /\s+/, get_tags($fn0);
+  my $tags1b=join " ", sort split /\s+/, get_tags($fn1);
   if ($tags0b eq $tags1b) {
     print "unified ($tags0b): ($fn0) ($fn1)\n";
   } else {
@@ -281,7 +327,6 @@ for my $fn0 (@ARGV) {
   my $fn=Cwd::abs_path($fn0);
   substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   print "  $fn\n";
-  # vvv Imp: move, not setfattr
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn, $key, $tags,
@@ -373,7 +418,6 @@ while (defined($fn0=<STDIN>)) {
   my $fn=Cwd::abs_path($fn0);
   substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   #print "  $fn\n";
-  # vvv Imp: move, not setfattr
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn, $key, $tags,
@@ -437,7 +481,6 @@ for my $fn0 (@ARGV) {
   my $fn=Cwd::abs_path($fn0);
   substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   #print "  $fn\n";
-  # vvv Imp: move, not setfattr
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn, $key, $tags,
