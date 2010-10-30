@@ -465,3 +465,54 @@ function _mmfs_fixprincipal() {
   echo "$0: error: _mmfs_fixprincipal not supported with ppfiletagger" >&2
   return 1
 }
+
+#** Displays all known tags whose prefix is $1, displaying at most $2 tags.
+#** @example _mmfs_expand_tag ta
+function _mmfs_expand_tag() {
+	perl -w -- - "$@" <<'END'
+$ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
+use integer; use strict;  $|=1;
+# Simple superset of UTF-8 words.
+my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
+                           [\xE0-\xEF] [\x80-\xBF]{2} |
+                           [\xF0-\xF4] [\x80-\xBF]{3}) /x;
+# Read the tag list file (of lines <tag> or <tag>:<description> or
+# <space><comment> or #<comment>).
+my $F;
+my $tags_fn = "$ENV{HOME}/.ppfiletagger_tags";
+die "$0: error opening $tags_fn: $!\n" if !open $F, "<", $tags_fn;
+my $lineno = 0;
+my %known_tags;
+for my $line (<$F>) {
+  ++$lineno;
+  next if $line !~ /^([^\s#][^:\s]*)([\n:]*)/;
+  my $tag = $1;
+  if (!length($2)) {
+    print "\007syntax error in $tags_fn:$.: missing colon or newline\n"; exit 4;
+  }
+  if ($tag !~ /\A(?:$tagchar_re)+\Z(?!\n)/) {
+    # TODO(pts): Support -* here.
+    print "\007syntax error in $tags_fn:$lineno: bad tag syntax: $tag\n";
+    exit 5;
+  }
+  if (exists $known_tags{$tag}) {
+    print "\007syntax error in $tags_fn:$lineno: duplicate tag: $tag\n";
+    exit 6;
+  }
+  $known_tags{$tag} = 1;
+}
+die unless close $F;
+
+my @tags = sort keys %known_tags;
+my $sign = '';
+my $prefix = @ARGV ? $ARGV[0] : "";
+$sign = $1 if $prefix =~ s@^([-+]+)@@;
+my $limit = @ARGV > 1 ? 0 + $ARGV[1] : 10;
+my @found_tags = grep { substr($_, 0, length($prefix)) eq $prefix } @tags;
+if ($limit > 0 and @found_tags > $limit) {
+  splice @found_tags, $limit - 1, @found_tags, '...';
+}
+print map { "$sign$_\n" } @found_tags;
+exit(@found_tags > 1 ? 2 : @found_tags ? 1 : 0);
+END
+}
