@@ -778,7 +778,11 @@ DEFINE_ANCHOR(int, vfs_setxattr,
   PRINT_DEBUG("my vfs_setxattr called\n%s", "");
   prevret = vfs_setxattr__anchor.prev(dentry VFSMNT_ARG(mnt), name, value,
       size, flags VFSMNT_ARG(filp));
-  PRINT_DEBUG("my vfs_setxattr prevret=%d\n", prevret);
+  PRINT_DEBUG("my vfs_setxattr prevret=%d name=%s flags=0x%x\n", prevret, name,
+              (prevret == 0) << 0 |
+              S_ISREG(dentry->d_inode->i_mode) << 1 |
+              (0 == strncmp(name, "user.", 5)) << 2 |
+              has_dentry_tagdb(dentry_parent->d_sb, dentry_parent, dentry_parent) << 3);
   if (prevret == 0 && S_ISREG(dentry->d_inode->i_mode) &&
       0 == strncmp(name, "user.", 5) &&  /* caller has done copy_from_user */
       has_dentry_tagdb(dentry_parent->d_sb,
