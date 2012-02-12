@@ -86,7 +86,7 @@ To compile and load rmtimeup, run these commands:
   $ make
   $ sudo insmod ./rmtimeup.ko 
 
-For permaent installation, do a
+For permanent installation, do a
 
   $ sudo bash -c 'make install'
   $ sudo echo rmtimeup | sudo tee -a /etc/modules
@@ -108,5 +108,3 @@ is based on rlocate.c (of rlocate 0.5.5) by Rasto Levrinc, which takes some
 code from Peter Robinson (http://www.logic.at/staff/robinson/).
 
 rfsdelta contains valuable improvements from Andress Blomdell.
-
-rmtimeup contains a modified copy of udis86 1.7, 
