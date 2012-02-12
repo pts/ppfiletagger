@@ -30,6 +30,8 @@ rmtimeup needs:
 ** Debian Lenny x86 2.6.26-2-686
 ** Ubuntu Hardy x86 2.6.24-27-generic
 ** Ubuntu Karmic x86 2.6.31-20-generic-pae
+** Ubuntu Karmic x86 2.6.34
+** Ubuntu Lucid x86 2.6.35-32-generic-pae
 * Kernel loadable module support (LKM, CONFIG_MODULES=y).
 
 How does it work
