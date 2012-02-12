@@ -15,6 +15,9 @@ GNU General Public License for more details.
 
 The scanner should not be run as root (to restrict the effects of
 security vulnerabilities).
+
+TODO: Remove files in phantom directories: /mnt/arc/d/E
+      How were these created at the first place?
 """
 
 __author__ = 'pts@fazekas.hu (Peter Szabo)'
@@ -445,7 +448,7 @@ class RootInfo(base.RootInfo):
             '(SELECT filewords_rowid FROM fileattrs '
             'INDEXED BY fileattrs_nxattr '
             'WHERE dir>=? AND dir<? AND filewords_rowid IS NOT NULL)',
-            (dir_low, dir_high))
+            (dir_to_delete + '/', dir_to_delete + succ_slash))
         delete_count += cursor.rowcount
         cursor.execute('DELETE FROM fileattrs INDEXED BY fileattrs_nxattr '
             'WHERE dir>=? AND dir<?',

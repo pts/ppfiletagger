@@ -179,3 +179,7 @@ TODO
 #       * ext2 has mount count, last mount time, last write time (tune2fs),
 #         reiserfs doesn't have these features
 # TODO: test for stability
+# TODO: sometime reiserfs fails and loses xattrs:
+#       [3532016.778751] REISERFS warning (device dm-2): jdm-20002 reiserfs_xattr_get: Invalid hash for xattr (user.mmfs.tags) associated with [1919251317 1718447406 0x61742e73 UNKNOWN]
+#       also elsewhere, but consistent like this:
+#       _mmfs_show after setfattr -n user.mmfs.tags -v fort_boyard valerieperez13082005collage49i.jpg
