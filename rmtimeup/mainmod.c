@@ -96,8 +96,6 @@ typedef void *vfs_value_t;
 /** File name of the tags database in the filesystem root */
 #define TAGDB_NAME "tags.sqlite"
 
-#define MOD_REG_NAME "rmtimeup"
-
 /* TODO: fail properly */
 #define assert(x) do { if (!(x)) printk(KERN_ERR \
     "%s: assertion failed: %s\n", THIS_MODULE->name, #x); } while(0)
