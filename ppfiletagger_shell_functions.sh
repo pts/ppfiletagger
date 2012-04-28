@@ -104,6 +104,12 @@ my $KC=0;
 my $EC=0;
 for my $fn0 (@ARGV) {
   my $fn=Cwd::abs_path($fn0);
+  if (!defined $fn) {
+    print "  $fn0\n";
+    print "    error: not found\n";
+    $EC++;
+    next
+  }
   substr($fn,0,0)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   print "  $fn\n";
   if (not -f $fn) {
