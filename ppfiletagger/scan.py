@@ -355,7 +355,7 @@ class RootInfo(base.RootInfo):
             try:
               xattrs = xattr.get_all(fsfn, namespace=xattr.NS_USER)
             except EnvironmentError, e:
-              logging.info('cannot list xattrs: %s' % e)
+              logging.info('cannot list xattrs of %s: %s' % (fsfn, e))
               xattrs = ()
             if st.st_nlink > 1 and not xattrs:
               # Add files with multiple hard links but without xattrs to the
