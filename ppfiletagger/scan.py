@@ -503,6 +503,8 @@ class Scanner(base.GlobalInfo):
     self.need_new_scan = False
     had_last_incremental = True
     for scan_root_dir in scan_root_dirs:
+      if scan_root_dir == '.empty':
+        continue
       root = self.roots[scan_root_dir]
       got_now = tuple(root.db.execute("SELECT ?", (now,)))
       assert ((now,),) == got_now, ('timestamp mismatch: sent=%r, got=%r' %
