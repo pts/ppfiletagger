@@ -276,7 +276,7 @@ sub unify_tags($$) {
   #print "$tags0; $tags1\n";
   add_tags($fn0, $tags1) if $tags1 ne "";
   add_tags($fn1, $tags0) if $tags0 ne "";
-  
+
   my $tags0b=join " ", sort split /\s+/, get_tags($fn0);
   my $tags1b=join " ", sort split /\s+/, get_tags($fn1);
   if ($tags0b eq $tags1b) {
@@ -399,22 +399,32 @@ $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
 die "_mmfs_grep: grep spec expected\n" if 1!=@ARGV;
+my @orterms;
 my %needplus;
 my %needminus;
 my %ignore;
-my $spec=$ARGV[0];
-while ($spec=~/(\S+)/g) {
-  my $word = $1;
-  if ($word =~ s@^-@@) {
-    $needminus{$word} = 1;
-  } elsif ($word =~ s@^[*]-@@) {
-    $ignore{$word} = 1;
-    $needplus{"*"} = 1;
-  } else {
-    $needplus{$word} = 1;
+# Query language:
+# * "foo bar | -baz" means ((foo AND bar) OR NOT baz).
+# * Special words: * -* and *-foo
+my $orspec = $ARGV[0];
+for my $spec (split /\|/, $orspec) {
+  pos($spec) = 0;
+  my ($needplus, $needminus, $ignore) = ({}, {}, {});
+  while ($spec=~/(\S+)/g) {
+    my $word = $1;
+    if ($word =~ s@^-@@) {
+      $needminus->{$word} = 1;
+    } elsif ($word =~ s@^[*]-@@) {
+      $ignore->{$word} = 1;
+      $needplus->{"*"} = 1;
+    } else {
+      $needplus->{$word} = 1;
+    }
   }
+  die "_mmfs_grep: empty spec: $spec\n" if !%$needplus and !%$needminus;
+  push @orterms, [$needplus, $needminus, $ignore];
 }
-die "_mmfs_grep: empty spec\n" if !%needplus and !%needminus;
+die "_mmfs_grep: empty query\n" if !@orterms;
 #my $mmdir="$ENV{HOME}/mmfs/root/";
 my $mmdir="/";
 my $C=0;  my $EC=0;  my $HC=0;
@@ -432,18 +442,22 @@ while (defined($fn0=<STDIN>)) {
     print STDERR "tag error: $fn: $!\n"; $EC++
   } else {
     $tags=~s@\0.*@@s;
-    my $ok_p=1;
-    my %N=%needplus;
-    #print "($tags)\n";
-    my $tagc=0;
-    while ($tags=~/(\S+)/g) {
-      my $tag=$1;
-      $tagc++ if !$ignore{$tag};
-      delete $N{$tag};
-      if ($needminus{$tag} or $needminus{"*"}) { $ok_p=0; last }
+    my $ok_p = 0;
+    for my $term (@orterms) {
+      my ($needplus, $needminus, $ignore) = @$term;
+      my %N=%$needplus;
+      #print "($tags)\n";
+      my $tagc=0;
+      pos($tags) = 0;
+      while ($tags=~/(\S+)/g) {
+        my $tag=$1;
+        $tagc++ if !$ignore->{$tag};
+        delete $N{$tag};
+        if ($needminus->{$tag} or $needminus->{"*"}) { %N = (1 => 1); last }
+      }
+      delete $N{"*"} if $tagc>0;
+      if (!%N) { $ok_p = 1; last }
     }
-    delete $N{"*"} if $tagc>0;
-    $ok_p=0 if %N;
     print "$fn0\n" if $ok_p;
   }
 }
