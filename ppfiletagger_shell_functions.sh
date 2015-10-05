@@ -26,7 +26,7 @@ my $key0 = "user.mmfs.tags";
 my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
                            [\xE0-\xEF] [\x80-\xBF]{2} |
                            [\xF0-\xF4] [\x80-\xBF]{3}) /x;
-my $pmtag_re = qr/([-+]?)((?:$tagchar_re)+)/;
+my $pmtag_re = qr/(---|[-+]?)((?:$tagchar_re)+)/;
 # Same as WORDDATA_SPLIT_WORD_RE in ppfiletagger/base.py.
 my $split_word_re = qr/[^\s?!.,;\[\](){}<>"\']+/;
 # Read the tag list file (of lines <tag> or <tag>:<description> or
@@ -71,9 +71,15 @@ for my $pmitem (split/\s+/,$tags) {
   if ($is_overwrite and 0 != length($1)) {
     print "\007unexpected sign ($pmitem), skipping files\n"; exit 9;
   }
-  if (!exists $known_tags{$tag}) { push @unknown_tags, $tag }
-  elsif ($1 eq "-") { push @mtags, $tag }
-  else { push @ptags, $tag }
+  if ($1 eq "---") {  # Use triple negation it's to remove unknown tags.
+    push @mtags, $tag
+  } elsif (!exists $known_tags{$tag}) {
+    push @unknown_tags, $tag
+  } elsif ($1 eq "-") {
+    push @mtags, $tag
+  } else {
+    push @ptags, $tag
+  }
 }
 if (@unknown_tags) {
   @unknown_tags = sort @unknown_tags;
