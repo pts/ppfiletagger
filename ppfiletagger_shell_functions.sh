@@ -329,10 +329,12 @@ print "to these files:\n";
 #my $mmdir="$ENV{HOME}/mmfs/root/";
 my $mmdir="/";
 my $C=0;  my $EC=0;  my $HC=0;
+my $do_show_abs_path = 0;
+if (@ARGV and $ARGV[0] eq '--abspath') { $do_show_abs_path = 1; shift @ARGV }
 for my $fn0 (@ARGV) {
   my $fn=Cwd::abs_path($fn0);
   substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
-  print "  $fn\n";
+  print "  " . ($do_show_abs_path ? $fn : $fn0) . "\n";
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn, $key, $tags,
