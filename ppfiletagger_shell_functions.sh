@@ -336,9 +336,12 @@ print "to these files:\n";
 my $mmdir="/";
 my $C=0;  my $EC=0;  my $HC=0;
 my $do_show_abs_path = 0;
-if (@ARGV and $ARGV[0] eq '--abspath') { $do_show_abs_path = 1; shift @ARGV }
-for my $fn0 (@ARGV) {
-  my $fn=Cwd::abs_path($fn0);
+my $do_readdir = 0;
+sub process_file($) {
+  my $fn0 = $_[0];
+  $fn0 =~ s@\A(?:[.]/)+@@;
+  my $fn = Cwd::abs_path($fn0);
+  # TODO(pts): What if !defined($fn)?
   substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   print "  " . ($do_show_abs_path ? $fn : $fn0) . "\n";
   my $key="user.mmfs.tags"; # Dat: must be in $var
@@ -352,6 +355,26 @@ for my $fn0 (@ARGV) {
     if ($tags ne"") { $HC++ } else { $tags=":none" }
     print "    $tags\n";  $C++;
   }
+}
+if (@ARGV and $ARGV[0] eq '--abspath') { $do_show_abs_path = 1; shift @ARGV }
+if (@ARGV and $ARGV[0] eq '--readdir') { $do_readdir = 1; shift @ARGV }
+if ($do_readdir) {
+  for my $arg (@ARGV) {
+    if (-d $arg) {
+      my $d;
+      die if !opendir $d, $arg;
+      my $entry;
+      while (defined($entry = readdir($d))) {
+        next if $entry eq "." or $entry eq "..";
+        process_file("$arg/$entry");
+      }
+      die if !closedir $d;
+    } else {
+      process_file($arg);
+    }
+  }
+} else {
+  for my $fn0 (@ARGV) { process_file($fn0) }
 }
 print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 print "shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n"
