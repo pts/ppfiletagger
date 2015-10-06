@@ -363,8 +363,9 @@ if ($do_readdir) {
     if (-d $arg) {
       my $d;
       die if !opendir $d, $arg;
-      my $entry;
-      while (defined($entry = readdir($d))) {
+      #my $entry;
+      #while (defined($entry = readdir($d))) {
+      for my $entry (sort readdir($d)) {
         next if $entry eq "." or $entry eq "..";
         process_file("$arg/$entry");
       }
