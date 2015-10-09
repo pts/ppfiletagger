@@ -12,195 +12,242 @@ function _mmfs_tag() {
 	# Imp: make this a default option
         # SUXX: prompt questions may not contain macros
         # SUXX: no way to signal an error
-	perl -w -- - "$@" <<'END'
+	perl -w -- - "$@" 3>&0 <<'END'
 use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_setxattr=&SYS_setxattr;
 my $SYS_getxattr=&SYS_getxattr;
-my($tags)=shift(@ARGV);
-$tags="" if !defined $tags;
-$tags=~ s@^[.]/@@;  # Prepended my Midnight Commander.
-my $key0 = "user.mmfs.tags";
 # Simple superset of UTF-8 words.
 my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
                            [\xE0-\xEF] [\x80-\xBF]{2} |
-                           [\xF0-\xF4] [\x80-\xBF]{3}) /x;
-my $pmtag_re = qr/(---|[-+]?)((?:$tagchar_re)+)/;
-# Same as WORDDATA_SPLIT_WORD_RE in ppfiletagger/base.py.
-my $split_word_re = qr/[^\s?!.,;\[\](){}<>"\']+/;
+                           [\xF0-\xF4] [\x80-\xBF]{3}) /xo;
+my $key0 = "user.mmfs.tags";
+
 # Read the tag list file (of lines <tag> or <tag>:<description> or
 # <space><comment> or #<comment>).
-my $F;
-my $tags_fn = "$ENV{HOME}/.ppfiletagger_tags";
-die "$0: error opening $tags_fn: $!\n" if !open $F, "<", $tags_fn;
-my $lineno = 0;
-my %known_tags;
-for my $line (<$F>) {
-  ++$lineno;
-  next if $line !~ /^([^\s#][^:\s]*)([\n:]*)/;
-  my $tag = $1;
-  if (!length($2)) {
-    print "\007syntax error in $tags_fn:$.: missing colon or newline\n"; exit 4;
-  }
-  if ($tag !~ /\A(?:$tagchar_re)+\Z(?!\n)/) {
-    # TODO(pts): Support -* here.
-    print "\007syntax error in $tags_fn:$lineno: bad tag syntax: $tag\n";
-    exit 5;
-  }
-  if (exists $known_tags{$tag}) {
-    print "\007syntax error in $tags_fn:$lineno: duplicate tag: $tag\n";
-    exit 6;
-  }
-  $known_tags{$tag} = 1;
-}
-die unless close $F;
-
-# Parse the +tag and -tag specification in the command line
-my @ptags;
-my @mtags;
-my @unknown_tags;
-my $is_overwrite = 0;
-$is_overwrite = 1 if $tags =~ s@\A\s*[.](?:\s+|\Z)@@;
-for my $pmitem (split/\s+/,$tags) {
-  if ($pmitem !~ /\A$pmtag_re\Z(?!\n)/) {
-    # TODO(pts): Report this later.
-    print "\007bad tag syntax ($pmitem), skipping files\n"; exit 3;
-  }
-  my $tag = $2;
-  if ($is_overwrite and 0 != length($1)) {
-    print "\007unexpected sign ($pmitem), skipping files\n"; exit 9;
-  }
-  if ($1 eq "---") {  # Use triple negation it's to remove unknown tags.
-    push @mtags, $tag
-  } elsif (!exists $known_tags{$tag}) {
-    push @unknown_tags, $tag
-  } elsif ($1 eq "-") {
-    push @mtags, $tag
-  } else {
-    push @ptags, $tag
-  }
-}
-if (@unknown_tags) {
-  @unknown_tags = sort @unknown_tags;
-  print "\007unknown tags (@unknown_tags), skipping files\n"; exit 7;
-}
-{ my %ptags_hash = map { $_ => 1 } @ptags;
-  my @intersection_tags;
-  for my $tag (@mtags) {
-    push @intersection_tags, $tag if exists $ptags_hash{$tag};
-  }
-  if (@intersection_tags) {
-    @intersection_tags = sort @intersection_tags;
-    print "\007plus and minus tags (@intersection_tags), skipping files\n";
-    exit 8;
-  }
-}
-# vvv Dat: menu item is not run on a very empty string
-if (!@ptags and !@mtags and !$is_overwrite) {
-  print STDERR "no tags specified ($tags)\n"; exit 2
-}
-
-# Read file xattrs, apply updates, write file xattrs.
-print "to these files:\n";
-#my $mmdir="$ENV{HOME}/mmfs/root/";
-my $mmdir="/";
-my $C=0;
-my $KC=0;
-my $EC=0;
-for my $fn0 (@ARGV) {
-  my $fn=Cwd::abs_path($fn0);
-  if (!defined $fn) {
-    print "  $fn0\n";
-    print "    error: not found\n";
-    $EC++;
-    next
-  }
-  substr($fn,0,0)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
-  print "  $fn\n";
-  if (not -f $fn) {
-    print "    error: not a file\n"; $EC++; next
-  }
-
-  my $key = $key0; # Dat: must be in $var
-  my $got;
-  my %old_tags_hash;
-  my @old_tags;
-  my $old_tags_str = '';
-
-  {
-    my $oldtags="\0"x65535;
-    $got = syscall($SYS_getxattr, $fn, $key, $oldtags,
-      length($oldtags), 0);
-    if ((!defined $got or $got<0) and !$!{ENODATA}) {
-      print "    error getting: $!\n"; $EC++; next
+sub read_tags_file($) {
+  my $tags_fn = $_[0];
+  my $F;
+  die "$0: error opening $tags_fn: $!\n" if !open $F, "<", $tags_fn;
+  my $lineno = 0;
+  my $tags = {};
+  for my $line (<$F>) {
+    ++$lineno;
+    next if $line !~ /^([^\s#][^:\s]*)([\n:]*)/;
+    my $tag = $1;
+    if (!length($2)) {
+      print "\007syntax error in $tags_fn:$.: missing colon or newline\n"; exit 4;
     }
-    $oldtags=~s@\0.*@@s;
-    $old_tags_str = $oldtags;
-    $oldtags =~ s/($split_word_re)/ $old_tags_hash{$1} = @old_tags;
-                                    push @old_tags, $1 /ge;
+    if ($tag !~ /\A(?:$tagchar_re)+\Z(?!\n)/) {
+      # TODO(pts): Support -* here.
+      print "\007syntax error in $tags_fn:$lineno: bad tag syntax: $tag\n";
+      exit 5;
+    }
+    if (exists $tags->{$tag}) {
+      print "\007syntax error in $tags_fn:$lineno: duplicate tag: $tag\n";
+      exit 6;
+    }
+    $tags->{$tag} = 1;
   }
+  die unless close $F;
+  $tags
+}
 
-  my @new_tags = $is_overwrite ? () : @old_tags;
-  my %new_tags_hash = $is_overwrite ? () : %old_tags_hash;
-  # Keep the original word order while updating.
-  for my $tag (@ptags) {
-    if (!exists $new_tags_hash{$tag}) {
-      $new_tags_hash{$tag} = @new_tags;
-      push @new_tags, $tag;
+my $known_tags = read_tags_file("$ENV{HOME}/.ppfiletagger_tags");
+my ($C, $KC, $EC) = 0;
+
+sub do_tag($$$) {
+  my ($tags, $filenames, $is_verbose) = @_;
+  my $pmtag_re = qr/(---|[-+]?)((?:$tagchar_re)+)/o;
+  # Same as WORDDATA_SPLIT_WORD_RE in ppfiletagger/base.py.
+  my $split_word_re = qr/[^\s?!.,;\[\](){}<>"\x27]+/o;
+  $tags="" if !defined $tags;
+  $tags=~ s@^[.]/@@;  # Prepended my Midnight Commander.
+  # Parse the +tag and -tag specification in the command line
+  my @ptags;
+  my @mtags;
+  my @unknown_tags;
+  my $is_overwrite = 0;
+  $is_overwrite = 1 if $tags =~ s@\A\s*[.](?:\s+|\Z)@@;
+  for my $pmitem (split/\s+/,$tags) {
+    if ($pmitem !~ /\A$pmtag_re\Z(?!\n)/) {
+      # TODO(pts): Report this later.
+      print "\007bad tag syntax ($pmitem), skipping files\n"; exit 3;
+    }
+    my $tag = $2;
+    if ($is_overwrite and 0 != length($1)) {
+      print "\007unexpected sign ($pmitem), skipping files\n"; exit 9;
+    }
+    if ($1 eq "---") {  # Use triple negation it is to remove unknown tags.
+      push @mtags, $tag
+    } elsif (!exists $known_tags->{$tag}) {
+      push @unknown_tags, $tag
+    } elsif ($1 eq "-") {
+      push @mtags, $tag
+    } else {
+      push @ptags, $tag
     }
   }
-  for my $tag (@mtags) {
-    if (exists $new_tags_hash{$tag}) {
-      $new_tags[$new_tags_hash{$tag}] = undef;
+  if (@unknown_tags) {
+    @unknown_tags = sort @unknown_tags;
+    print "\007unknown tags (@unknown_tags), skipping files\n"; exit 7;
+  }
+  { my %ptags_hash = map { $_ => 1 } @ptags;
+    my @intersection_tags;
+    for my $tag (@mtags) {
+      push @intersection_tags, $tag if exists $ptags_hash{$tag};
+    }
+    if (@intersection_tags) {
+      @intersection_tags = sort @intersection_tags;
+      print "\007plus and minus tags (@intersection_tags), skipping files\n";
+      exit 8;
     }
   }
-  @new_tags = grep { defined $_ } @new_tags;
-  #print "@new_tags;;@old_tags\n"; next;
-  if (join("\0", @old_tags) eq join("\0", @new_tags)) {
-    $KC++; next
+  # vvv Dat: menu item is not run on a very empty string
+  if (!@ptags and !@mtags and !$is_overwrite) {
+    print STDERR "no tags specified ($tags)\n"; exit 2
   }
-  my $set_tags = join(" ", @new_tags);
-  $key=$key0;
-  # Setting $set_tags to the empty string removes $key on reiserfs3. Good.
-  #die "SET $set_tags\n";
-  #print "($set_tags)\n($old_tags_str)\n";
-  if (length($set_tags) > 0 and length($set_tags) < length($old_tags_str)) {
-    # There is a reiserfs bug on Linux 2.6.31: can't reliably set the
-    # extended attribute to a shorter value. Workaround: set it to the empty
-    # value (or remove it) first.
-    my $empty = '';  # Perl needs this so $empty is writable.
-    $got=syscall($SYS_setxattr, $fn, $key, $empty, 0, 0);
+
+  # Read file xattrs, apply updates, write file xattrs.
+  #my $mmdir="$ENV{HOME}/mmfs/root/";
+  my $mmdir="/";
+  for my $fn0 (@$filenames) {
+    my $fn=Cwd::abs_path($fn0);
+    if (!defined $fn) {
+      print "  $fn0\n";
+      print "    error: not found\n";
+      $EC++;
+      next
+    }
+    substr($fn,0,0)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
+    print "  $fn\n";
+    if (not -f $fn) {
+      print "    error: not a file\n"; $EC++; next
+    }
+
+    my $key = $key0; # Dat: must be in $var
+    my $got;
+    my %old_tags_hash;
+    my @old_tags;
+    my $old_tags_str = "";
+
+    {
+      my $oldtags="\0"x65535;
+      $got = syscall($SYS_getxattr, $fn, $key, $oldtags,
+        length($oldtags), 0);
+      if ((!defined $got or $got<0) and !$!{ENODATA}) {
+        print "    error getting: $!\n"; $EC++; next
+      }
+      $oldtags=~s@\0.*@@s;
+      $old_tags_str = $oldtags;
+      $oldtags =~ s/($split_word_re)/ $old_tags_hash{$1} = @old_tags;
+                                      push @old_tags, $1 /ge;
+    }
+
+    my @new_tags = $is_overwrite ? () : @old_tags;
+    my %new_tags_hash = $is_overwrite ? () : %old_tags_hash;
+    # Keep the original word order while updating.
+    for my $tag (@ptags) {
+      if (!exists $new_tags_hash{$tag}) {
+        $new_tags_hash{$tag} = @new_tags;
+        push @new_tags, $tag;
+      }
+    }
+    for my $tag (@mtags) {
+      if (exists $new_tags_hash{$tag}) {
+        $new_tags[$new_tags_hash{$tag}] = undef;
+      }
+    }
+    @new_tags = grep { defined $_ } @new_tags;
+    #print "@new_tags;;@old_tags\n"; next;
+    if (join("\0", @old_tags) eq join("\0", @new_tags)) {
+      print "    unchanged by tagspec: $tags\n" if $is_verbose;
+      $KC++; next
+    }
+    my $set_tags = join(" ", @new_tags);
+    $key=$key0;
+    # Setting $set_tags to the empty string removes $key on reiserfs3. Good.
+    #die "SET $set_tags\n";
+    #print "($set_tags)\n($old_tags_str)\n";
+    if (length($set_tags) > 0 and length($set_tags) < length($old_tags_str)) {
+      # There is a reiserfs bug on Linux 2.6.31: cannot reliably set the
+      # extended attribute to a shorter value. Workaround: set it to the empty
+      # value (or remove it) first.
+      my $empty = "";  # Perl needs this so $empty is writable.
+      $got=syscall($SYS_setxattr, $fn, $key, $empty, 0, 0);
+      if (!defined $got or $got<0) {
+        print "    error: $!\n"; $EC++;
+        # Try to restore the original value;
+        syscall($SYS_setxattr, $fn, $key, $old_tags_str, len($old_tags_str), 0);
+        next;
+      }
+    }
+    $got = syscall($SYS_setxattr, $fn, $key, $set_tags,
+        length($set_tags), 0);
     if (!defined $got or $got<0) {
-      print "    error: $!\n"; $EC++;
-      # Try to restore the original value;
-      syscall($SYS_setxattr, $fn, $key, $old_tags_str, len($old_tags_str), 0);
-      next;
+      if ("$!" eq "Cannot assign requested address") {
+        print "\007bad tags ($tags), skipping other files\n"; exit
+      } else { print "    error: $!\n"; $EC++ }
+    } else {
+      print "    applied tagspec: $tags\n" if $is_verbose;
+      $C++
     }
   }
-  $got=syscall($SYS_setxattr, $fn, $key, $set_tags,
-    length($set_tags), 0);
-  if (!defined $got or $got<0) {
-    if ("$!" eq "Cannot assign requested address") {
-      print "\007bad tags ($tags), skipping other files\n"; exit
-    } else { print "    error: $!\n"; $EC++ }
-  } else { $C++ }
+}
+
+die "Usage: $0 \x27tagspec\x27 filename1 ...
+     or echo \"tagspec :: filename\" ... | $0 --stdin\n" if
+     !@ARGV or $ARGV[0] eq "--help";
+my $tags_to_log = "...";
+print "to these files:\n";
+if (@ARGV and $ARGV[0] eq "--stdin") {
+  my ($line, $cfilename, $lineno);
+  my $f;
+  die if !open($f, "<&3");
+  while (defined($line = <$f>)) {
+    $lineno = $.;
+    if ($line =~ m@^# file: (.*)$@) {
+      # Output format of: getfattr -hR -e text -n user.mmfs.tags
+      $cfilename = $1
+    } elsif ($line =~ /^([^#\n=]+)="(.*?)"$/) {
+      # Output format of: getfattr -hR -e text -n user.mmfs.tags
+      my ($key, $value) = ($1, $2);
+      die "$0: bad key: $key ($lineno)\n" if $key =~ /["\\]/;
+      die "$0: missing filename for key: $key ($lineno)\n" if
+           !defined($cfilename);
+      do_tag($value, [$cfilename], 1) if $key eq $key0;
+    } elsif ($line =~ m@(.*?):: (.*?)$@) {
+      my ($tagspec, $filename) = ($1, $2);
+      $tagspec =~ s@\A\s+@@;
+      $tagspec =~ s@\s+\Z(?!\n)@@;
+      do_tag($tagspec, [$filename], 1);
+    } elsif ($line !~ m@\S@) {
+      $cfilename = undef
+    } else {
+      die "Unexpected input line ($lineno): $line";
+    }
+  }
+  die if !close($f);
+} else {
+  my $tags = shift(@ARGV);
+  $tags_to_log = $tags;
+  do_tag($tags, \@ARGV, 0);
 }
 print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
-print "kept tags of $KC file@{[$C==1?q():q(s)]}: $tags\n" if $KC;
-print "modified tags of $C file@{[$C==1?q():q(s)]}: $tags\n";
+print "kept tags of $KC file@{[$C==1?q():q(s)]}: $tags_to_log\n" if $KC;
+print "modified tags of $C file@{[$C==1?q():q(s)]}: $tags_to_log\n";
 exit 1 if $EC;
 END
 }
 
-# !! Make sure this works with ppfiletagger.
 #** Makes both files have the union of the tags.
 #** Imp: also unify the descriptions.
 #** SUXX: needed 2 runs: modified 32, then 4, then 0 files (maybe because of
 #**   equivalence classes)
 #** @example _mmfs_unify_tags file1 file2
 #** @example echo "... 'file1' ... 'file2' ..." ... | _mmfs_unify_tags --stdin
-function _mmfs_unify_tags() {  # !! removexattr (not strictly needed)
+function _mmfs_unify_tags() {
 	perl -we '
 use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
@@ -331,7 +378,6 @@ use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
-print "to these files:\n";
 #my $mmdir="$ENV{HOME}/mmfs/root/";
 my $mmdir="/";
 my $C=0;  my $EC=0;  my $HC=0;
