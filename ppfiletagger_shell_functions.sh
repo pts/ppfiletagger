@@ -179,7 +179,8 @@ sub do_tag($$$) {
       if (!defined $got or $got<0) {
         print "    error: $!\n"; $EC++;
         # Try to restore the original value;
-        syscall($SYS_setxattr, $fn, $key, $old_tags_str, len($old_tags_str), 0);
+        syscall($SYS_setxattr, $fn, $key, $old_tags_str,
+                length($old_tags_str), 0);
         next;
       }
     }
