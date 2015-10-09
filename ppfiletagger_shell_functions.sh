@@ -235,6 +235,7 @@ if (@ARGV and $ARGV[0] eq "--stdin") {
   $tags_to_log = $tags;
   do_tag($tags, \@ARGV, 0);
 }
+$tags_to_log =~ s@^[.]/@@;  # Prepended my Midnight Commander.
 print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 print "kept tags of $KC file@{[$C==1?q():q(s)]}: $tags_to_log\n" if $KC;
 print "modified tags of $C file@{[$C==1?q():q(s)]}: $tags_to_log\n";
