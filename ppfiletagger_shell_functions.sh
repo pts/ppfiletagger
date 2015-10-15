@@ -13,7 +13,6 @@ function _mmfs_tag() {
         # SUXX: prompt questions may not contain macros
         # SUXX: no way to signal an error
 	perl -w -- - "$@" 3>&0 <<'END'
-use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_setxattr=&SYS_setxattr;
@@ -111,15 +110,8 @@ sub do_tag($$$) {
 
   # Read file xattrs, apply updates, write file xattrs.
   for my $fn0 (@$filenames) {
-    my $fn=Cwd::abs_path($fn0);
-    if (!defined $fn) {
-      print "  $fn0\n";
-      print "    error: not found\n";
-      $EC++;
-      next
-    }
-    print "  $fn\n";
-    if (not -f $fn) {
+    print "  $fn0\n";
+    if (not -f $fn0) {
       print "    error: not a file\n"; $EC++; next
     }
 
@@ -131,7 +123,7 @@ sub do_tag($$$) {
 
     {
       my $oldtags="\0"x65535;
-      $got = syscall($SYS_getxattr, $fn, $key, $oldtags,
+      $got = syscall($SYS_getxattr, $fn0, $key, $oldtags,
         length($oldtags), 0);
       if ((!defined $got or $got<0) and !$!{ENODATA}) {
         print "    error getting: $!\n"; $EC++; next
@@ -172,16 +164,16 @@ sub do_tag($$$) {
       # extended attribute to a shorter value. Workaround: set it to the empty
       # value (or remove it) first.
       my $empty = "";  # Perl needs this so $empty is writable.
-      $got=syscall($SYS_setxattr, $fn, $key, $empty, 0, 0);
+      $got=syscall($SYS_setxattr, $fn0, $key, $empty, 0, 0);
       if (!defined $got or $got<0) {
         print "    error: $!\n"; $EC++;
         # Try to restore the original value;
-        syscall($SYS_setxattr, $fn, $key, $old_tags_str,
+        syscall($SYS_setxattr, $fn0, $key, $old_tags_str,
                 length($old_tags_str), 0);
         next;
       }
     }
-    $got = syscall($SYS_setxattr, $fn, $key, $set_tags,
+    $got = syscall($SYS_setxattr, $fn0, $key, $set_tags,
         length($set_tags), 0);
     if (!defined $got or $got<0) {
       if ("$!" eq "Cannot assign requested address") {
@@ -248,7 +240,6 @@ END
 #** @example echo "... 'file1' ... 'file2' ..." ... | _mmfs_unify_tags --stdin
 function _mmfs_unify_tags() {
 	perl -we '
-use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph";
@@ -263,15 +254,15 @@ print "unifying tags\n";
 
 #** @return :String, may be empty
 sub get_tags($) {
-  my $fn=Cwd::abs_path($_[0]);
-  #print "  $fn\n";
+  my $fn0 = $_[0];
+  #print "  $fn0\n";
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
-  my $got=syscall($SYS_getxattr, $fn, $key, $tags,
+  my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
     length($tags), 0);
   if ((!defined $got or $got<0) and !$!{ENODATA}) {
-    print "    error: $fn: $!\n"; $EC++;
-    return "";
+    print "  get-error: $fn0: $!\n"; $EC++;
+    return undef;
   } else {
     $tags=~s@\0.*@@s;
     return $tags;
@@ -281,15 +272,14 @@ sub get_tags($) {
 sub add_tags($$) {
   my($fn0,$tags)=@_;
   die "error: bad add-tags syntax: $tags\n" if $tags =~ /[+-]/;
-  my $fn=Cwd::abs_path($fn0);
-  #print "  $fn\n";
+  #print "  $fn0\n";
   my $key="user.mmfs.tags"; # Dat: must be in $var
 
   my $tags0="\0"x65535;
-  my $got=syscall($SYS_getxattr, $fn, $key, $tags0,
+  my $got=syscall($SYS_getxattr, $fn0, $key, $tags0,
     length($tags0), 0);
   if ((!defined $got or $got<0) and !$!{ENODATA}) {
-    print "add-get-error: $fn: $!\n"; $EC++;
+    print "  add-get-error: $fn0: $!\n"; $EC++;
   }
   $tags0=~s@\0.*@@s;
   my %tags0_hash = map { $_ => 1 } split(/\s+/, $tags0);
@@ -299,12 +289,12 @@ sub add_tags($$) {
   }
   $tags1 =~ s@\A\s+@@;
   die if length($tags1) < length($tags);  # fail on reiserfs length problem
-  $got = syscall($SYS_setxattr, $fn, $key, $tags1,
+  $got = syscall($SYS_setxattr, $fn0, $key, $tags1,
     length($tags1), 0);
   if (!defined $got or $got<0) {
     if ("$!" eq "Cannot assign requested address") {
       print "\007bad tags ($tags)\n"; $EC++;
-    } else { print "add-error: $fn: $!\n"; $EC++ }
+    } else { print "  add-error: $fn0: $!\n"; $EC++ }
   } else { $C++ }
 }
 
@@ -312,13 +302,15 @@ sub add_tags($$) {
 sub unify_tags($$) {
   my($fn0,$fn1)=@_;
   my $tags0=get_tags($fn0);
+  return -4 if !defined($tags0);
   my $tags1=get_tags($fn1);
+  return -5 if !defined($tags1);
   if ($tags0 eq $tags1) {
     if ($tags0 eq "") {
-      print "neither: ($fn0) ($fn1)\n";
+      print "  neither: ($fn0) ($fn1)\n";
       return -1
     }
-    print "both ($tags0): ($fn0) ($fn1)\n";
+    print "  both ($tags0): ($fn0) ($fn1)\n";
     return -2
   }
   #print "$tags0; $tags1\n";
@@ -328,9 +320,9 @@ sub unify_tags($$) {
   my $tags0b=join " ", sort split /\s+/, get_tags($fn0);
   my $tags1b=join " ", sort split /\s+/, get_tags($fn1);
   if ($tags0b eq $tags1b) {
-    print "unified ($tags0b): ($fn0) ($fn1)\n";
+    print "  unified ($tags0b): ($fn0) ($fn1)\n";
   } else {
-    print "\007failed to unify: ($fn0):($tags0b), ($fn1):($tags1b)\n";
+    print "\007  failed to unify: ($fn0):($tags0b), ($fn1):($tags1b)\n";
     $EC++;
     return -3;
   }
@@ -379,12 +371,20 @@ my $do_readdir = 0;
 sub process_file($) {
   my $fn0 = $_[0];
   $fn0 =~ s@\A(?:[.]/)+@@;
-  my $fn = Cwd::abs_path($fn0);
-  # TODO(pts): What if !defined($fn)?
-  print "  " . ($do_show_abs_path ? $fn : $fn0) . "\n";
+  if ($do_show_abs_path) {
+    my $fn = Cwd::abs_path($fn0);
+    # This usually happens when $fn0 is a symlink pointing to a nonexisting
+    # file.
+    if (!defined $fn) {
+      print "  $fn0\n    error: abs not found: $!\n"; $EC++; return
+    }
+    print "  $fn\n";
+  } else {
+    print "  $fn0\n";
+  }
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
-  my $got=syscall($SYS_getxattr, $fn, $key, $tags,
+  my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
     length($tags), 0);
   if ((!defined $got or $got<0) and !$!{ENODATA}) {
     print "    error: $!\n"; $EC++
@@ -431,16 +431,14 @@ function _mmfs_get_tags() {
         # SUXX: prompt questions may not contain macros
         # SUXX: no way to signal an error
 	perl -w -- - "$@" <<'END'
-use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
 die "error: not a single filename specified\n" if @ARGV != 1;
 for my $fn0 (@ARGV) {
-  my $fn=Cwd::abs_path($fn0);
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
-  my $got=syscall($SYS_getxattr, $fn, $key, $tags,
+  my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
     length($tags), 0);
   if ((!defined $got or $got<0) and !$!{ENODATA}) {
     print STDERR "error: $fn0: $!\n";
@@ -461,7 +459,6 @@ END
 #** @example ls | _mmfs_grep '-*'             # anything without tags
 function _mmfs_grep() {
 	perl -w -e '
-use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
@@ -496,14 +493,13 @@ my $C=0;  my $EC=0;  my $HC=0;
 my $fn0;
 while (defined($fn0=<STDIN>)) {
   chomp $fn0;
-  my $fn=Cwd::abs_path($fn0);
-  #print "  $fn\n";
+  #print "  $fn0\n";
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
-  my $got=syscall($SYS_getxattr, $fn, $key, $tags,
+  my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
     length($tags), 0);
   if ((!defined $got or $got<0) and !$!{ENODATA}) {
-    print STDERR "tag error: $fn: $!\n"; $EC++
+    print STDERR "error: $fn0: $!\n"; $EC++
   } else {
     $tags=~s@\0.*@@s;
     my $ok_p = 0;
@@ -539,7 +535,6 @@ function _mmfs_dump() {
         # SUXX: prompt questions may not contain macros
         # SUXX: no way to signal an error
 	perl -w -- - "$@" <<'END'
-use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 sub fnq($) {
@@ -555,24 +550,20 @@ if (@ARGV and $ARGV[0] eq '--') { shift @ARGV }
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
 #print "to these files:\n";
 my $C=0;  my $EC=0;  my $HC=0;
-if (defined $printfn) {
-  $printfn=Cwd::abs_path($printfn);
-}
 for my $fn0 (@ARGV) {
-  my $fn=Cwd::abs_path($fn0);
-  #print "  $fn\n";
+  #print "  $fn0\n";
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
-  my $got=syscall($SYS_getxattr, $fn, $key, $tags,
+  my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
     length($tags), 0);
   if ((!defined $got or $got<0) and !$!{ENODATA}) {
-    print "    error: $!\n"; $EC++
+    print "error: $fn0: $!\n"; $EC++
   } else {
     $tags=~s@\0.*@@s;
     if ($tags ne"") {
       $HC++;
       print "setfattr -n user.mmfs.tags.modify -v ".fnq($tags)." ".
-        fnq(defined$printfn ? $printfn : $fn)."\n";
+        fnq(defined$printfn ? $printfn : $fn0)."\n";
     } else { $tags=":none" }
     #print "    $tags\n";
     $C++;
