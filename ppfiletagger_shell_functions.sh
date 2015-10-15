@@ -110,8 +110,6 @@ sub do_tag($$$) {
   }
 
   # Read file xattrs, apply updates, write file xattrs.
-  #my $mmdir="$ENV{HOME}/mmfs/root/";
-  my $mmdir="/";
   for my $fn0 (@$filenames) {
     my $fn=Cwd::abs_path($fn0);
     if (!defined $fn) {
@@ -120,7 +118,6 @@ sub do_tag($$$) {
       $EC++;
       next
     }
-    substr($fn,0,0)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
     print "  $fn\n";
     if (not -f $fn) {
       print "    error: not a file\n"; $EC++; next
@@ -257,8 +254,6 @@ use integer; use strict;  $|=1;
 require "syscall.ph";
 my $SYS_setxattr=&SYS_setxattr;
 my $SYS_getxattr=&SYS_getxattr;
-#my $mmdir="$ENV{HOME}/mmfs/root/";
-my $mmdir="/";
 my $C=0;  my $EC=0;
 $0="_mmfs_unify_tags";
 die "Usage: $0 <file1> <file2>
@@ -269,7 +264,6 @@ print "unifying tags\n";
 #** @return :String, may be empty
 sub get_tags($) {
   my $fn=Cwd::abs_path($_[0]);
-  substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   #print "  $fn\n";
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
@@ -288,7 +282,6 @@ sub add_tags($$) {
   my($fn0,$tags)=@_;
   die "error: bad add-tags syntax: $tags\n" if $tags =~ /[+-]/;
   my $fn=Cwd::abs_path($fn0);
-  substr($fn,0,0)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   #print "  $fn\n";
   my $key="user.mmfs.tags"; # Dat: must be in $var
 
@@ -380,8 +373,6 @@ use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
-#my $mmdir="$ENV{HOME}/mmfs/root/";
-my $mmdir="/";
 my $C=0;  my $EC=0;  my $HC=0;
 my $do_show_abs_path = 0;
 my $do_readdir = 0;
@@ -390,7 +381,6 @@ sub process_file($) {
   $fn0 =~ s@\A(?:[.]/)+@@;
   my $fn = Cwd::abs_path($fn0);
   # TODO(pts): What if !defined($fn)?
-  substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   print "  " . ($do_show_abs_path ? $fn : $fn0) . "\n";
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
@@ -445,12 +435,9 @@ use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
-#my $mmdir="$ENV{HOME}/mmfs/root/";
-my $mmdir="/";
 die "error: not a single filename specified\n" if @ARGV != 1;
 for my $fn0 (@ARGV) {
   my $fn=Cwd::abs_path($fn0);
-  substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn, $key, $tags,
@@ -505,14 +492,11 @@ for my $spec (split /\|/, $orspec) {
   push @orterms, [$needplus, $needminus, $ignore];
 }
 die "_mmfs_grep: empty query\n" if !@orterms;
-#my $mmdir="$ENV{HOME}/mmfs/root/";
-my $mmdir="/";
 my $C=0;  my $EC=0;  my $HC=0;
 my $fn0;
 while (defined($fn0=<STDIN>)) {
   chomp $fn0;
   my $fn=Cwd::abs_path($fn0);
-  substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   #print "  $fn\n";
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
@@ -570,16 +554,12 @@ if (@ARGV and $ARGV[0]=~/\A--printfn=(.*)/s) { $printfn=$1; shift @ARGV }
 if (@ARGV and $ARGV[0] eq '--') { shift @ARGV }
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
 #print "to these files:\n";
-#my $mmdir="$ENV{HOME}/mmfs/root/";
-my $mmdir="/";
 my $C=0;  my $EC=0;  my $HC=0;
 if (defined $printfn) {
   $printfn=Cwd::abs_path($printfn);
-  substr($printfn,0,1)=$mmdir if substr($printfn,0,length$mmdir)ne$mmdir;
 }
 for my $fn0 (@ARGV) {
   my $fn=Cwd::abs_path($fn0);
-  substr($fn,0,1)=$mmdir if substr($fn,0,length$mmdir)ne$mmdir;
   #print "  $fn\n";
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
