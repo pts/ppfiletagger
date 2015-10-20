@@ -48,6 +48,7 @@ sub read_tags_file($) {
       exit 6;
     }
     $tags->{$tag} = 1;
+    $tags->{"v:$tag"} = 1;  # Vetted.
   }
   die unless close $F;
   $tags
@@ -58,7 +59,7 @@ my ($C, $KC, $EC) = 0;
 
 sub do_tag($$$) {
   my ($tags, $filenames, $is_verbose) = @_;
-  my $pmtag_re = qr/(---|[-+]?)((?:$tagchar_re)+)/o;
+  my $pmtag_re = qr/(---|[-+]?)((?:v:)?(?:$tagchar_re)+)/o;
   # Same as WORDDATA_SPLIT_WORD_RE in ppfiletagger/base.py.
   my $split_word_re = qr/[^\s?!.,;\[\](){}<>"\x27]+/o;
   $tags="" if !defined $tags;
@@ -225,6 +226,7 @@ if (@ARGV and $ARGV[0] eq "--stdin") {
   do_tag($tags, \@ARGV, 0);
 }
 $tags_to_log =~ s@^[.]/@@;  # Prepended my Midnight Commander.
+$tags_to_log =~ s@\s+@ @g;
 print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 print "kept tags of $KC file@{[$C==1?q():q(s)]}: $tags_to_log\n" if $KC;
 print "modified tags of $C file@{[$C==1?q():q(s)]}: $tags_to_log\n";
