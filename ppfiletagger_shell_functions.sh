@@ -392,8 +392,12 @@ sub process_file($) {
     print "    error: $!\n"; $EC++
   } else {
     $tags=~s@\0.*@@s;
+    my @tags = split/\s+/, $tags;
+    my @n_tags = grep { !/^v:/ } @tags;
+    my @v_tags = grep { /^v:/  } @tags;
     if ($tags ne"") { $HC++ } else { $tags=":none" }
-    print "    $tags\n";  $C++;
+    print "    @n_tags\n";  $C++;
+    print "    @v_tags\n" if @v_tags;
   }
 }
 if (@ARGV and $ARGV[0] eq '--abspath') { $do_show_abs_path = 1; shift @ARGV }
