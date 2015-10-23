@@ -395,7 +395,7 @@ sub process_file($) {
     my @tags = split/\s+/, $tags;
     my @n_tags = grep { !/^v:/ } @tags;
     my @v_tags = grep { /^v:/  } @tags;
-    if ($tags ne"") { $HC++ } else { $tags=":none" }
+    if ($tags ne"") { $HC++ } else { @n_tags=(":none") }
     print "    @n_tags\n";  $C++;
     print "    @v_tags\n" if @v_tags;
   }
