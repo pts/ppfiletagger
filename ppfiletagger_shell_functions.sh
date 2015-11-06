@@ -69,6 +69,7 @@ sub do_tag($$$) {
   my @mtags;
   my @unknown_tags;
   my $is_overwrite = 0;
+  # Overwrite tags if starts with a dot. Used by qiv-command.
   $is_overwrite = 1 if $tags =~ s@\A\s*[.](?:\s+|\Z)@@;
   for my $pmitem (split/\s+/,$tags) {
     if ($pmitem !~ /\A$pmtag_re\Z(?!\n)/) {
@@ -76,10 +77,13 @@ sub do_tag($$$) {
       print "\007bad tag syntax ($pmitem), skipping files\n"; exit 3;
     }
     my $tag = $2;
-    if ($is_overwrite and 0 != length($1)) {
+    if ($is_overwrite and $1 eq "-") {
       print "\007unexpected sign ($pmitem), skipping files\n"; exit 9;
     }
-    if ($1 eq "---") {  # Use triple negation it is to remove unknown tags.
+    # Use triple negation to remove unknown tags or to remove a tag when
+    # $is_overwrite is true. (In the latter case, remove takes precedence,
+    # no matter the order in $tags.)
+    if ($1 eq "---") {
       push @mtags, $tag
     } elsif (!exists $known_tags->{$tag}) {
       push @unknown_tags, $tag
@@ -98,7 +102,12 @@ sub do_tag($$$) {
     for my $tag (@mtags) {
       push @intersection_tags, $tag if exists $ptags_hash{$tag};
     }
-    if (@intersection_tags) {
+    if (!@intersection_tags) {
+    } elsif ($is_overwrite) {
+      my %intersection_tags_hash = map { $_ => 1 } @intersection_tags;
+      @mtags = ();
+      @ptags = grep { not exists $intersection_tags_hash{$_} } @ptags;
+    } else {
       @intersection_tags = sort @intersection_tags;
       print "\007plus and minus tags (@intersection_tags), skipping files\n";
       exit 8;
