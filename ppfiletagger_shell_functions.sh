@@ -280,9 +280,12 @@ sub get_tags($) {
   }
 }
 
-sub add_tags($$) {
-  my($fn0,$tags)=@_;
+sub add_tags($$;$) {
+  my($fn0,$tags,$rmtags)=@_;
+  my %rmtags;
+  %rmtags=map { $_ => 1 } split(/\s+/, $rmtags) if defined $rmtags;
   die "error: bad add-tags syntax: $tags\n" if $tags =~ /[+-]/;
+  return 0 if $tags !~ /\S/ and !%rmtags;
   #print "  $fn0\n";
   my $key="user.mmfs.tags"; # Dat: must be in $var
 
@@ -290,7 +293,7 @@ sub add_tags($$) {
   my $got=syscall($SYS_getxattr, $fn0, $key, $tags0,
     length($tags0), 0);
   if ((!defined $got or $got<0) and !$!{ENODATA}) {
-    print "  add-get-error: $fn0: $!\n"; $EC++;
+    print "  add-get-error: $fn0: $!\n"; $EC++; return 1
   }
   $tags0=~s@\0.*@@s;
   my %tags0_hash = map { $_ => 1 } split(/\s+/, $tags0);
@@ -298,35 +301,57 @@ sub add_tags($$) {
   for my $tag (split(/\s+/, $tags)) {
     $tags1 .= " $tag" if not exists $tags0_hash{$tag};
   }
+  if (%rmtags) {
+    my @both_tags = grep { exists $rmtags{$_} } split(/\s+/, $tags);
+    die "error: tags both added and removed: @both_tags\n" if @both_tags;
+    my $has_rmtag = grep { exists $rmtags{$_} } split(/\s+/, $tags1);
+    if ($has_rmtag) {
+      $tags1 = join(" ", grep { !exists $rmtags{$_} } split(/\s+/, $tags1));
+    }
+  }
   $tags1 =~ s@\A\s+@@;
-  die if length($tags1) < length($tags);  # fail on reiserfs length problem
-  $got = syscall($SYS_setxattr, $fn0, $key, $tags1,
-    length($tags1), 0);
-  if (!defined $got or $got<0) {
-    if ("$!" eq "Cannot assign requested address") {
-      print "\007bad tags ($tags)\n"; $EC++;
-    } else { print "  add-error: $fn0: $!\n"; $EC++ }
-  } else { $C++ }
+  die if !%rmtags and length($tags1) < length($tags);  # fail on reiserfs length problem
+  if ($tags1 ne $tags0) {
+    $got = syscall($SYS_setxattr, $fn0, $key, $tags1,
+      length($tags1), 0);
+    if (!defined $got or $got<0) {
+      if ("$!" eq "Cannot assign requested address") {
+        print "\007bad tags ($tags)\n"; $EC++; return 1
+      } else {
+        print "  add-error: $fn0: $!\n"; $EC++; return 1
+      }
+    } else {
+      $C++
+    }
+  }
+  0
 }
-
 
 sub unify_tags($$) {
   my($fn0,$fn1)=@_;
-  my $tags0=get_tags($fn0);
-  return -4 if !defined($tags0);
-  my $tags1=get_tags($fn1);
-  return -5 if !defined($tags1);
-  if ($tags0 eq $tags1) {
-    if ($tags0 eq "") {
-      print "  neither: ($fn0) ($fn1)\n";
-      return -1
+  {
+    my $tags0=get_tags($fn0);
+    return -4 if !defined($tags0);
+    my $tags1=get_tags($fn1);
+    return -5 if !defined($tags1);
+    if ($tags0 eq $tags1) {
+      if ($tags0 eq "") {
+        print "  neither: ($fn0) ($fn1)\n";
+        return -1
+      }
+      print "  both ($tags0): ($fn0) ($fn1)\n";
+      return -2
     }
-    print "  both ($tags0): ($fn0) ($fn1)\n";
-    return -2
+    my @tags0a=split /\s+/, get_tags($fn0);
+    my @tags1a=split /\s+/, get_tags($fn1);
+    my %tags0ah=map { $_ => 1 } @tags0a;
+    my %tags1ah=map { $_ => 1 } @tags1a;
+    my @rmtags = (grep { exists $tags1ah{"v:$_"} and !exists $tags1ah{$_} } @tags0a), (grep { exists $tags0ah{"v:$_"} and !exists $tags0ah{$_} } @tags1a);
+    @tags0a = grep { !exists $tags1ah{"v:$_"} or exists $tags1ah{$_} } @tags0a;
+    @tags1a = grep { !exists $tags0ah{"v:$_"} or exists $tags0ah{$_} } @tags1a;
+    add_tags($fn0, "@tags1a", "@rmtags") if @tags1a or @rmtags;
+    add_tags($fn1, "@tags0a", "@rmtags") if @tags0a or @rmtags;
   }
-  #print "$tags0; $tags1\n";
-  add_tags($fn0, $tags1) if $tags1 ne "";
-  add_tags($fn1, $tags0) if $tags0 ne "";
 
   my $tags0b=join " ", sort split /\s+/, get_tags($fn0);
   my $tags1b=join " ", sort split /\s+/, get_tags($fn1);
