@@ -280,6 +280,23 @@ sub get_tags($) {
   }
 }
 
+sub set_tags($$;$) {
+  my($fn0,$tags1,$do_count)=@_;
+  my $key="user.mmfs.tags"; # Dat: must be in $var
+  my $got = syscall($SYS_setxattr, $fn0, $key, $tags1,
+    length($tags1), 0);
+  if (!defined $got or $got<0) {
+    if ("$!" eq "Cannot assign requested address") {
+      print "\007bad tags ($tags1)\n"; $EC++; return 1
+    } else {
+      print "  set-error: $fn0: $!\n"; $EC++; return 1
+    }
+  } else {
+    $C++ if !defined($do_count) or $do_count;
+    return 0
+  }
+}
+
 sub add_tags($$;$) {
   my($fn0,$tags,$rmtags)=@_;
   my %rmtags;
@@ -311,20 +328,7 @@ sub add_tags($$;$) {
   }
   $tags1 =~ s@\A\s+@@;
   die if !%rmtags and length($tags1) < length($tags);  # fail on reiserfs length problem
-  if ($tags1 ne $tags0) {
-    $got = syscall($SYS_setxattr, $fn0, $key, $tags1,
-      length($tags1), 0);
-    if (!defined $got or $got<0) {
-      if ("$!" eq "Cannot assign requested address") {
-        print "\007bad tags ($tags)\n"; $EC++; return 1
-      } else {
-        print "  add-error: $fn0: $!\n"; $EC++; return 1
-      }
-    } else {
-      $C++
-    }
-  }
-  0
+  return ($tags1 eq $tags0) ? 0 : set_tags($fn0, $tags1);
 }
 
 sub unify_tags($$) {
@@ -353,12 +357,22 @@ sub unify_tags($$) {
     add_tags($fn1, "@tags0a", "@rmtags") if @tags0a or @rmtags;
   }
 
-  my $tags0b=join " ", sort split /\s+/, get_tags($fn0);
-  my $tags1b=join " ", sort split /\s+/, get_tags($fn1);
-  if ($tags0b eq $tags1b) {
-    print "  unified ($tags0b): ($fn0) ($fn1)\n";
+  my $tags0b=get_tags($fn0);
+  my $tags1b=get_tags($fn1);
+  my @tags0l=sort split /\s+/, $tags0b;
+  my @tags1l=sort split /\s+/, $tags1b;
+  my $tags0c=join " ", @tags0l;
+  my $tags1c=join " ", @tags1l;
+  if ($tags0c eq $tags1c) {
+    if ($tags0b ne $tags1b) {
+      set_tags($fn0, $tags1b, 0);  # Copy (order of) tags from $fn1 to $fn0.
+    }
+    print "  unified ($tags0c): ($fn0) ($fn1)\n";
   } else {
-    print "\007  failed to unify: ($fn0):($tags0b), ($fn1):($tags1b)\n";
+    my @common_tags = grep { my $tag = $_; grep { $tag eq $_ } @tags1l } @tags0l;
+    my @tags0ol = grep { my $tag = $_; !grep { $tag eq $_ } @common_tags } @tags0l;
+    my @tags1ol = grep { my $tag = $_; !grep { $tag eq $_ } @common_tags } @tags1l;
+    print "\007  failed to unify: common:(@common_tags), ($fn0):(@tags0ol), ($fn1):(@tags1ol)\n";
     $EC++;
     return -3;
   }
