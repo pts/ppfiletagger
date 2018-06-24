@@ -15,8 +15,10 @@ function _mmfs_tag() {
 	perl -w -- - "$@" 3>&0 <<'END'
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
-require "syscall.ph"; my $SYS_setxattr=&SYS_setxattr;
+require "syscall.ph";
+my $SYS_setxattr=&SYS_setxattr;
 my $SYS_getxattr=&SYS_getxattr;
+my $SYS_removexattr=&SYS_removexattr;
 # Simple superset of UTF-8 words.
 my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
                            [\xE0-\xEF] [\x80-\xBF]{2} |
@@ -183,8 +185,9 @@ sub do_tag($$$) {
         next;
       }
     }
-    $got = syscall($SYS_setxattr, $fn0, $key, $set_tags,
-        length($set_tags), 0);
+    $got = length($set_tags) == 0 ?
+        syscall($SYS_removexattr, $fn0, $key) :
+        syscall($SYS_setxattr, $fn0, $key, $set_tags, length($set_tags), 0);
     if (!defined $got or $got<0) {
       if ("$!" eq "Cannot assign requested address") {
         print "\007bad tags ($tags), skipping other files\n"; exit
