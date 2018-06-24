@@ -70,20 +70,28 @@ sub do_tag($$$) {
   my @ptags;
   my @mtags;
   my @unknown_tags;
-  my $is_overwrite = 0;
+  my $do_overwrite = 0;
   # Overwrite tags if starts with a dot. Used by qiv-command.
-  $is_overwrite = 1 if $tags =~ s@\A\s*[.](?:\s+|\Z)@@;
-  for my $pmitem (split/\s+/,$tags) {
+  $do_overwrite = 1 if $tags =~ s@\A\s*[.](?:\s+|\Z)@@;
+  my @tags = split(/\s+/, $tags);
+  if (@tags == 1 and $do_overwrite and $tags[0] eq ":none") {
+    shift @tags;
+    $do_overwrite = 1;
+  } elsif (@tags and $tags[0] eq "-*") {
+    shift @tags;
+    $do_overwrite = 1;
+  }
+  for my $pmitem (@tags) {
     if ($pmitem !~ /\A$pmtag_re\Z(?!\n)/) {
       # TODO(pts): Report this later.
       print "\007bad tag syntax ($pmitem), skipping files\n"; exit 3;
     }
     my $tag = $2;
-    if ($is_overwrite and $1 eq "-") {
+    if ($do_overwrite and $1 eq "-") {
       print "\007unexpected sign ($pmitem), skipping files\n"; exit 9;
     }
     # Use triple negation to remove unknown tags or to remove a tag when
-    # $is_overwrite is true. (In the latter case, remove takes precedence,
+    # $do_overwrite is true. (In the latter case, remove takes precedence,
     # no matter the order in $tags.)
     if ($1 eq "---") {
       push @mtags, $tag
@@ -105,7 +113,7 @@ sub do_tag($$$) {
       push @intersection_tags, $tag if exists $ptags_hash{$tag};
     }
     if (!@intersection_tags) {
-    } elsif ($is_overwrite) {
+    } elsif ($do_overwrite) {
       my %intersection_tags_hash = map { $_ => 1 } @intersection_tags;
       @mtags = ();
       @ptags = grep { not exists $intersection_tags_hash{$_} } @ptags;
@@ -116,7 +124,7 @@ sub do_tag($$$) {
     }
   }
   # vvv Dat: menu item is not run on a very empty string
-  if (!@ptags and !@mtags and !$is_overwrite) {
+  if (!@ptags and !@mtags and !$do_overwrite) {
     print STDERR "no tags specified ($tags)\n"; exit 2
   }
 
@@ -141,7 +149,7 @@ sub do_tag($$$) {
       if ((!defined $got or $got<0) and !$!{ENODATA}) {
         my $is_eio = $!{EIO};
         print "    error getting: $!\n"; $EC++;
-        next if !$is_eio or !$is_overwrite;
+        next if !$is_eio or !$do_overwrite;
         $oldtags = $old_tags_str = "?";
         $old_tags_hash{"?"} = 1;
         push @old_tags, "?";
@@ -153,8 +161,8 @@ sub do_tag($$$) {
       }
     }
 
-    my @new_tags = $is_overwrite ? () : @old_tags;
-    my %new_tags_hash = $is_overwrite ? () : %old_tags_hash;
+    my @new_tags = $do_overwrite ? () : @old_tags;
+    my %new_tags_hash = $do_overwrite ? () : %old_tags_hash;
     # Keep the original word order while updating.
     for my $tag (@ptags) {
       if (!exists $new_tags_hash{$tag}) {
@@ -176,7 +184,7 @@ sub do_tag($$$) {
     my $set_tags = join(" ", @new_tags);
     $key=$key0;
     # Setting $set_tags to the empty string removes $key on reiserfs3. Good.
-    #die "SET $set_tags\n";
+    #die "SET ($old_tags_str) ($set_tags)\n";
     #print "($set_tags)\n($old_tags_str)\n";
     if (length($set_tags) > 0 and length($set_tags) < length($old_tags_str)) {
       # There is a reiserfs bug on Linux 2.6.31: cannot reliably set the
