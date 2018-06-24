@@ -133,17 +133,24 @@ sub do_tag($$$) {
     my @old_tags;
     my $old_tags_str = "";
 
+    # Populates $old_tags_str %old_tags_hash and $old_tags.
     {
       my $oldtags="\0"x65535;
       $got = syscall($SYS_getxattr, $fn0, $key, $oldtags,
         length($oldtags), 0);
       if ((!defined $got or $got<0) and !$!{ENODATA}) {
-        print "    error getting: $!\n"; $EC++; next
-      }
-      $oldtags=~s@\0.*@@s;
-      $old_tags_str = $oldtags;
-      $oldtags =~ s/($split_word_re)/ $old_tags_hash{$1} = @old_tags;
+        my $is_eio = $!{EIO};
+        print "    error getting: $!\n"; $EC++;
+        next if !$is_eio or !$is_overwrite;
+        $oldtags = $old_tags_str = "?";
+        $old_tags_hash{"?"} = 1;
+        push @old_tags, "?";
+      } else {
+        $oldtags=~s@\0.*@@s;
+        $old_tags_str = $oldtags;
+        $oldtags =~ s/($split_word_re)/ $old_tags_hash{$1} = @old_tags;
                                       push @old_tags, $1 /ge;
+      }
     }
 
     my @new_tags = $is_overwrite ? () : @old_tags;
