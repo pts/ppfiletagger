@@ -597,6 +597,7 @@ print STDERR "warning: had error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 ' -- "$@"
 }
 
+#** Output format: setfattr -n user.mmfs.tags.modify -v TAGS FILENAME
 #** @example _mmfs_dump [--printfn=...] file1 file2 ...
 #** @example _copyattr() { _mmfs_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne 'print if s@^rm -f @_copyattr @ and s@ #, keep @ @' >_d.sh; source _d.sh | sh
 function _mmfs_dump() {
