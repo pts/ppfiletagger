@@ -119,13 +119,19 @@ sub do_tag($$$) {
     }
   }
   # vvv Dat: menu item is not run on a very empty string
-  if (!@ptags and !@mtags and !$do_overwrite) {
-    print STDERR "no tags specified ($tags)\n"; exit 2
+  my $is_nop = (!@ptags and !@mtags and !$do_overwrite);
+  if ($is_nop) {
+    print STDERR "warning: no tags specified ($tags)\n";
+    # exit 2;
   }
 
   # Read file xattrs, apply updates, write file xattrs.
   for my $fn0 (@$filenames) {
     print "  $fn0\n";
+    if ($is_nop) {
+      print "    unchanged by tagspec: $tags\n" if $is_verbose;
+      $KC++; next
+    }
     if (not -f $fn0) {
       print "    error: not a file\n"; $EC++; next
     }
