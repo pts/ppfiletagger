@@ -253,11 +253,12 @@ if (@ARGV and $ARGV[0] eq "--stdin") {
   do_tag($tags, \@ARGV, 0);
   $action = "overwritten" if $do_overwrite;
   $tags_to_log = $tags;
+  $tags_to_log =~ s@^[.]/@@;  # Prepended my Midnight Commander.
+  $tags_to_log =~ s@[,\s]+@ @g;
+  $tags_to_log =~ s@^[.]\s+@@ if $do_overwrite;
 }
-$tags_to_log =~ s@^[.]/@@;  # Prepended my Midnight Commander.
-$tags_to_log =~ s@[,\s]+@ @g;
 print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
-print "kept tags of $KC file@{[$KC==1?q():q(s)]}: $tags_to_log\n" if $KC;
+print "kept tags of $KC file@{[$KC==1?q():q(s)]}\n" if $KC;
 print "$action tags of $C file@{[$C==1?q():q(s)]}: $tags_to_log\n";
 exit 1 if $EC;
 END
