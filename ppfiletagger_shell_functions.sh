@@ -15,10 +15,25 @@ function _mmfs_tag() {
 	perl -w -- - "$@" 3>&0 <<'END'
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
-require "syscall.ph";
-my $SYS_setxattr=&SYS_setxattr;
-my $SYS_getxattr=&SYS_getxattr;
-my $SYS_removexattr=&SYS_removexattr;
+sub get_archname() {
+  # This is still slow: return (eval { require Config; die if !%Config::Config; $Config::Config{archname} } or "");
+  for my $dir (@INC) { my $fn = "$dir/Config.pm"; if (open(my($f), "<", $fn)) { my $S = join("", <$f>); close($f); return $1 if $S =~ m@\n[ \t]+archname[ \t]*=>[ \t]*[\x27"]([^-\x27"\\]+-)@; last } } ""
+}
+sub get_xattr_syscalls() {
+  if ($^O eq "linux") {
+    my $archname = get_archname();
+    if ($archname =~ m@\A(?:x86_64|amd64)-@) {
+      return (191, 197, 188);
+    } elsif ($archname =~ m@\Ai[3-6]86-@) {
+      return (229, 235, 226);
+    }
+  }
+  # This works on Linux, but `require "syscall.ph" is quite slow.
+  my @result = eval { package syscall; require "syscall.ph"; &syscall::SYS_getxattr, &syscall::SYS_removexattr, &syscall::SYS_setxattr };
+  die "fatal: setxattr and other syscalls not available\n" if @result != 3;
+  @result
+}
+my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
 # Simple superset of UTF-8 words.
 my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
                            [\xE0-\xEF] [\x80-\xBF]{2} |
@@ -274,8 +289,25 @@ function _mmfs_unify_tags() {
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph";
-my $SYS_setxattr=&SYS_setxattr;
-my $SYS_getxattr=&SYS_getxattr;
+sub get_archname() {
+  # This is still slow: return (eval { require Config; die if !%Config::Config; $Config::Config{archname} } or "");
+  for my $dir (@INC) { my $fn = "$dir/Config.pm"; if (open(my($f), "<", $fn)) { my $S = join("", <$f>); close($f); return $1 if $S =~ m@\n[ \t]+archname[ \t]*=>[ \t]*[\x27"]([^-\x27"\\]+-)@; last } } ""
+}
+sub get_xattr_syscalls() {
+  if ($^O eq "linux") {
+    my $archname = get_archname();
+    if ($archname =~ m@\A(?:x86_64|amd64)-@) {
+      return (191, 197, 188);
+    } elsif ($archname =~ m@\Ai[3-6]86-@) {
+      return (229, 235, 226);
+    }
+  }
+  # This works on Linux, but `require "syscall.ph" is quite slow.
+  my @result = eval { package syscall; require "syscall.ph"; &syscall::SYS_getxattr, &syscall::SYS_removexattr, &syscall::SYS_setxattr };
+  die "fatal: setxattr and other syscalls not available\n" if @result != 3;
+  @result
+}
+my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
 my $C=0;  my $EC=0;
 $0="_mmfs_unify_tags";
 die "Usage: $0 <file1> <file2>
@@ -434,7 +466,25 @@ function _mmfs_show() {
 use Cwd;
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
-require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
+sub get_archname() {
+  # This is still slow: return (eval { require Config; die if !%Config::Config; $Config::Config{archname} } or "");
+  for my $dir (@INC) { my $fn = "$dir/Config.pm"; if (open(my($f), "<", $fn)) { my $S = join("", <$f>); close($f); return $1 if $S =~ m@\n[ \t]+archname[ \t]*=>[ \t]*[\x27"]([^-\x27"\\]+-)@; last } } ""
+}
+sub get_xattr_syscalls() {
+  if ($^O eq "linux") {
+    my $archname = get_archname();
+    if ($archname =~ m@\A(?:x86_64|amd64)-@) {
+      return (191, 197, 188);
+    } elsif ($archname =~ m@\Ai[3-6]86-@) {
+      return (229, 235, 226);
+    }
+  }
+  # This works on Linux, but `require "syscall.ph" is quite slow.
+  my @result = eval { package syscall; require "syscall.ph"; &syscall::SYS_getxattr, &syscall::SYS_removexattr, &syscall::SYS_setxattr };
+  die "fatal: setxattr and other syscalls not available\n" if @result != 3;
+  @result
+}
+my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
 my $C=0;  my $EC=0;  my $HC=0;
 my $do_show_abs_path = 0;
 my $do_readdir = 0;
@@ -507,7 +557,25 @@ function _mmfs_get_tags() {
 	perl -w -- - "$@" <<'END'
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
-require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
+sub get_archname() {
+  # This is still slow: return (eval { require Config; die if !%Config::Config; $Config::Config{archname} } or "");
+  for my $dir (@INC) { my $fn = "$dir/Config.pm"; if (open(my($f), "<", $fn)) { my $S = join("", <$f>); close($f); return $1 if $S =~ m@\n[ \t]+archname[ \t]*=>[ \t]*[\x27"]([^-\x27"\\]+-)@; last } } ""
+}
+sub get_xattr_syscalls() {
+  if ($^O eq "linux") {
+    my $archname = get_archname();
+    if ($archname =~ m@\A(?:x86_64|amd64)-@) {
+      return (191, 197, 188);
+    } elsif ($archname =~ m@\Ai[3-6]86-@) {
+      return (229, 235, 226);
+    }
+  }
+  # This works on Linux, but `require "syscall.ph" is quite slow.
+  my @result = eval { package syscall; require "syscall.ph"; &syscall::SYS_getxattr, &syscall::SYS_removexattr, &syscall::SYS_setxattr };
+  die "fatal: setxattr and other syscalls not available\n" if @result != 3;
+  @result
+}
+my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
 die "error: not a single filename specified\n" if @ARGV != 1;
 for my $fn0 (@ARGV) {
   my $key="user.mmfs.tags"; # Dat: must be in $var
@@ -535,7 +603,25 @@ function _mmfs_grep() {
 	perl -w -e '
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
-require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
+sub get_archname() {
+  # This is still slow: return (eval { require Config; die if !%Config::Config; $Config::Config{archname} } or "");
+  for my $dir (@INC) { my $fn = "$dir/Config.pm"; if (open(my($f), "<", $fn)) { my $S = join("", <$f>); close($f); return $1 if $S =~ m@\n[ \t]+archname[ \t]*=>[ \t]*[\x27"]([^-\x27"\\]+-)@; last } } ""
+}
+sub get_xattr_syscalls() {
+  if ($^O eq "linux") {
+    my $archname = get_archname();
+    if ($archname =~ m@\A(?:x86_64|amd64)-@) {
+      return (191, 197, 188);
+    } elsif ($archname =~ m@\Ai[3-6]86-@) {
+      return (229, 235, 226);
+    }
+  }
+  # This works on Linux, but `require "syscall.ph" is quite slow.
+  my @result = eval { package syscall; require "syscall.ph"; &syscall::SYS_getxattr, &syscall::SYS_removexattr, &syscall::SYS_setxattr };
+  die "fatal: setxattr and other syscalls not available\n" if @result != 3;
+  @result
+}
+my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
 die "_mmfs_grep: query expected\n" if 1!=@ARGV;
 # Simple superset of UTF-8 words.
 my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
@@ -631,7 +717,25 @@ sub fnq($) {
 my $printfn;
 if (@ARGV and $ARGV[0]=~/\A--printfn=(.*)/s) { $printfn=$1; shift @ARGV }
 if (@ARGV and $ARGV[0] eq '--') { shift @ARGV }
-require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
+sub get_archname() {
+  # This is still slow: return (eval { require Config; die if !%Config::Config; $Config::Config{archname} } or "");
+  for my $dir (@INC) { my $fn = "$dir/Config.pm"; if (open(my($f), "<", $fn)) { my $S = join("", <$f>); close($f); return $1 if $S =~ m@\n[ \t]+archname[ \t]*=>[ \t]*[\x27"]([^-\x27"\\]+-)@; last } } ""
+}
+sub get_xattr_syscalls() {
+  if ($^O eq "linux") {
+    my $archname = get_archname();
+    if ($archname =~ m@\A(?:x86_64|amd64)-@) {
+      return (191, 197, 188);
+    } elsif ($archname =~ m@\Ai[3-6]86-@) {
+      return (229, 235, 226);
+    }
+  }
+  # This works on Linux, but `require "syscall.ph" is quite slow.
+  my @result = eval { package syscall; require "syscall.ph"; &syscall::SYS_getxattr, &syscall::SYS_removexattr, &syscall::SYS_setxattr };
+  die "fatal: setxattr and other syscalls not available\n" if @result != 3;
+  @result
+}
+my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
 #print "to these files:\n";
 my $C=0;  my $EC=0;  my $HC=0;
 for my $fn0 (@ARGV) {
