@@ -536,7 +536,11 @@ function _mmfs_grep() {
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 require "syscall.ph"; my $SYS_getxattr=&SYS_getxattr;
-die "_mmfs_grep: grep spec expected\n" if 1!=@ARGV;
+die "_mmfs_grep: query expected\n" if 1!=@ARGV;
+# Simple superset of UTF-8 words.
+my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
+                           [\xE0-\xEF] [\x80-\xBF]{2} |
+                           [\xF0-\xF4] [\x80-\xBF]{3}) /xo;
 my @orterms;
 my %needplus;
 my %needminus;
@@ -544,22 +548,27 @@ my %ignore;
 # Query language:
 # * "foo bar | -baz" means ((foo AND bar) OR NOT baz).
 # * Special words: * -* and *-foo
-my $orspec = $ARGV[0];
-for my $spec (split /\|/, $orspec) {
+my $query = $ARGV[0];
+die "_mmfs_grep: parentheses not supported in query: $query\n" if $query =~ m@[()]@;
+for my $spec (split /\|/, $query) {
   pos($spec) = 0;
   my ($needplus, $needminus, $ignore) = ({}, {}, {});
   while ($spec=~/(\S+)/g) {
-    my $word = $1;
-    if ($word =~ s@^-@@) {
-      $needminus->{$word} = 1;
-    } elsif ($word =~ s@^[*]-@@) {
-      $ignore->{$word} = 1;
+    my $tagv = $1;
+    if ($tagv =~ s@^-@@) {
+      $needminus->{$tagv} = 1;
+      next if $tagv eq "*";
+    } elsif ($tagv =~ s@^[*]-@@) {
+      $ignore->{$tagv} = 1;
       $needplus->{"*"} = 1;
     } else {
-      $needplus->{$word} = 1;
+      $needplus->{$tagv} = 1;
+      next if $tagv eq "*";
     }
+    die "_mmfs_grep: invalid tagv syntax: $tagv\n" if $tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@;
   }
-  die "_mmfs_grep: empty spec: $spec\n" if !%$needplus and !%$needminus;
+  die "_mmfs_grep: empty spec in query: $spec\n" if !%$needplus and !%$needminus;
+  #print STDERR "info: query spec needplus=(@{[sort keys%$needplus]}) needminus=(@{[sort keys%$needminus]}) ignore=(@{[sort keys%$ignore]})\n";
   push @orterms, [$needplus, $needminus, $ignore];
 }
 die "_mmfs_grep: empty query\n" if !@orterms;
