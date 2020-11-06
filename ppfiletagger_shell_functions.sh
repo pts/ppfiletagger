@@ -752,7 +752,11 @@ for my $fn0 (@ARGV) {
       $HC++;
       print "setfattr -n user.mmfs.tags -v ".fnq($tags)." ".
         fnq(defined$printfn ? $printfn : $fn0)."\n";
-    } else { $tags=":none" }
+    } else {
+      print "setfattr -x user.mmfs.tags ".
+        fnq(defined$printfn ? $printfn : $fn0)."\n";
+      $tags = ":none";
+    }
     #print "    $tags\n";
     $C++;
   }
