@@ -57,7 +57,7 @@ sub read_tags_file($) {
 }
 
 my $known_tags = read_tags_file("$ENV{HOME}/.ppfiletagger_tags");
-my ($C, $KC, $EC) = 0;
+my ($C, $KC, $EC, $do_overwrite) = (0, 0, 0, 0);
 
 sub do_tag($$$) {
   my ($tags, $filenames, $is_verbose) = @_;
@@ -70,10 +70,10 @@ sub do_tag($$$) {
   my @ptags;
   my @mtags;
   my @unknown_tags;
-  my $do_overwrite = 0;
+  $do_overwrite = 0;
   # Overwrite tags if starts with a dot. Used by qiv-command.
-  $do_overwrite = 1 if $tags =~ s@\A\s*[.](?:\s+|\Z)@@;
-  my @tags = split(/\s+/, $tags);
+  $do_overwrite = 1 if $tags =~ s@\A\s*[.](?:[\s,]|\Z)@@;
+  my @tags = split(/[\s,]+/, $tags);
   if (@tags == 1 and $do_overwrite and $tags[0] eq ":none") {
     shift @tags;
     $do_overwrite = 1;
@@ -94,7 +94,7 @@ sub do_tag($$$) {
     # $do_overwrite is true. (In the latter case, remove takes precedence,
     # no matter the order in $tags.)
     if ($1 eq "---") {
-      push @mtags, $tag
+      push @mtags, $tag  # Force remove, don't check %known_tags.
     } elsif (!exists $known_tags->{$tag}) {
       push @unknown_tags, $tag
     } elsif ($1 eq "-") {
@@ -219,6 +219,7 @@ die "Usage: $0 \x27tagspec\x27 filename1 ...
      !@ARGV or $ARGV[0] eq "--help";
 my $tags_to_log = "...";
 print "to these files:\n";
+my $action = "modified";
 if (@ARGV and $ARGV[0] eq "--stdin") {
   my ($line, $cfilename, $lineno);
   my $f;
@@ -249,14 +250,15 @@ if (@ARGV and $ARGV[0] eq "--stdin") {
   die if !close($f);
 } else {
   my $tags = shift(@ARGV);
-  $tags_to_log = $tags;
   do_tag($tags, \@ARGV, 0);
+  $action = "overwritten" if $do_overwrite;
+  $tags_to_log = $tags;
 }
 $tags_to_log =~ s@^[.]/@@;  # Prepended my Midnight Commander.
-$tags_to_log =~ s@\s+@ @g;
+$tags_to_log =~ s@[,\s]+@ @g;
 print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
-print "kept tags of $KC file@{[$C==1?q():q(s)]}: $tags_to_log\n" if $KC;
-print "modified tags of $C file@{[$C==1?q():q(s)]}: $tags_to_log\n";
+print "kept tags of $KC file@{[$KC==1?q():q(s)]}: $tags_to_log\n" if $KC;
+print "$action tags of $C file@{[$C==1?q():q(s)]}: $tags_to_log\n";
 exit 1 if $EC;
 END
 }
