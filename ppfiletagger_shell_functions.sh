@@ -62,8 +62,6 @@ my ($C, $KC, $EC, $do_overwrite) = (0, 0, 0, 0);
 sub do_tag($$$) {
   my ($tags, $filenames, $is_verbose) = @_;
   my $pmtag_re = qr/(---|[-+]?)((?:v:)?(?:$tagchar_re)+)/o;
-  # Same as WORDDATA_SPLIT_WORD_RE in ppfiletagger/base.py.
-  my $split_word_re = qr/[^\s?!.,;\[\](){}<>"\x27]+/o;
   $tags="" if !defined $tags;
   $tags=~ s@^[.]/@@;  # Prepended my Midnight Commander.
   # Parse the +tag and -tag specification in the command line
@@ -85,7 +83,7 @@ sub do_tag($$$) {
   for my $pmitem (@tags) {
     if ($pmitem !~ /\A$pmtag_re\Z(?!\n)/) {
       # TODO(pts): Report this later.
-      print "\007bad tag syntax ($pmitem), skipping files\n"; exit 3;
+      print "\007bad tag item syntax ($pmitem), skipping files\n"; exit 3;
     }
     my $tag = $2;
     if ($do_overwrite and $1 eq "-") {
@@ -157,8 +155,8 @@ sub do_tag($$$) {
       } else {
         $oldtags=~s@\0.*@@s;
         $old_tags_str = $oldtags;
-        $oldtags =~ s/($split_word_re)/ $old_tags_hash{$1} = @old_tags;
-                                      push @old_tags, $1 /ge;
+        $oldtags =~ s/(\S+)/ $old_tags_hash{$1} = @old_tags;
+                             push @old_tags, $1 /ge;
       }
     }
 
@@ -368,8 +366,8 @@ sub unify_tags($$) {
       print "  both ($tags0): ($fn0) ($fn1)\n";
       return -2
     }
-    my @tags0a=split /\s+/, get_tags($fn0);
-    my @tags1a=split /\s+/, get_tags($fn1);
+    my @tags0a=split /\s+/, get_tags($fn0);  # \S+
+    my @tags1a=split /\s+/, get_tags($fn1);  # \S+
     my %tags0ah=map { $_ => 1 } @tags0a;
     my %tags1ah=map { $_ => 1 } @tags1a;
     my @rmtags = (grep { exists $tags1ah{"v:$_"} and !exists $tags1ah{$_} } @tags0a), (grep { exists $tags0ah{"v:$_"} and !exists $tags0ah{$_} } @tags1a);
@@ -381,8 +379,8 @@ sub unify_tags($$) {
 
   my $tags0b=get_tags($fn0);
   my $tags1b=get_tags($fn1);
-  my @tags0l=sort split /\s+/, $tags0b;
-  my @tags1l=sort split /\s+/, $tags1b;
+  my @tags0l=sort split /\s+/, $tags0b;  # \S+
+  my @tags1l=sort split /\s+/, $tags1b;  # \S+
   my $tags0c=join " ", @tags0l;
   my $tags1c=join " ", @tags1l;
   if ($tags0c eq $tags1c) {
