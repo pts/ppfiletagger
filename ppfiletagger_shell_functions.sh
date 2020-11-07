@@ -235,6 +235,8 @@ my $tags_to_log = "...";
 print "to these files:\n";
 my $action = "modified";
 if (@ARGV and $ARGV[0] eq "--stdin") {
+  my $sharg_re = qr@[^\s()\\\x27"`;&<>*?\[\]$|#]+|\x27(?:[^\x27]++|\x27\\\x27\x27)*+\x27@;
+  my $sharg_decode = sub { my $s = $_[0]; $s =~ s@\x27\\\x27\x27@\x27@g if $s =~ s@\A\x27(.*)\x27@$1@s; $s };
   my ($line, $cfilename, $lineno);
   my $f;
   die if !open($f, "<&3");
@@ -255,6 +257,13 @@ if (@ARGV and $ARGV[0] eq "--stdin") {
       $tagspec =~ s@\A\s+@@;
       $tagspec =~ s@\s+\Z(?!\n)@@;
       do_tag($tagspec, [$filename], 1);
+    } elsif ($line =~ m@^#[ \t\r\n]@) {
+    } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+user.mmfs.tags[ \t]+($sharg_re)[ \t]*$@o) {
+      my $filename = $sharg_decode->($1);
+      do_tag(".", [$filename], 1);
+    } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+user.mmfs.tags[ \t]+-v[ \t]+($sharg_re)[ \t]+($sharg_re)[ \t]*@o) {
+      my($tags, $filename) = ($sharg_decode->($1), $sharg_decode->($2));
+      do_tag(". $tags", [$filename], 1);
     } elsif ($line !~ m@\S@) {
       $cfilename = undef
     } else {
