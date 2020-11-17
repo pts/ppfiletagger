@@ -6,7 +6,7 @@
 #** Adds or removes tags on files.
 #** @example _mmfs_tag 'tag1 -tag2 ...' file1 file2 ...    # keep tag3
 function _mmfs_tag() {
-	# Midnight Commander menu for movemetafs
+	# Midnight Commander menu action implementation for movemetafs (mmfs).
 	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
 	# Imp: better mc menus
 	# Imp: make this a default option
@@ -549,7 +549,7 @@ exit 1 if $EC;
 
 #** @example _mmfs_show file1 file2 ...
 function _mmfs_show() {
-	# Midnight Commander menu for movemetafs
+	# Midnight Commander menu action implementation for movemetafs (mmfs).
 	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
 	# Imp: better mc menus
 	# Imp: make this a default option
@@ -641,7 +641,6 @@ END
 #** scripting.
 #** @example _mmfs_get_tags file1
 function _mmfs_get_tags() {
-	# Midnight Commander menu for movemetafs
 	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
 	# Imp: better mc menus
 	# Imp: make this a default option
@@ -790,7 +789,6 @@ print STDERR "warning: had error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 #** @example _mmfs_dump [--printfn=...] file1 file2 ...
 #** @example _copyattr() { _mmfs_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne 'print if s@^rm -f @_copyattr @ and s@ #, keep @ @' >_d.sh; source _d.sh | sh
 function _mmfs_dump() {
-	# Midnight Commander menu for movemetafs
 	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
 	# Imp: better mc menus
 	# Imp: make this a default option
