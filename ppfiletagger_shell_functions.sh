@@ -845,13 +845,17 @@ Flags:
 --format=getfattr : Print the same output as: getfattr -e text
 --format=mfi : Print in the mediafileinfo format.
 --stdin : Get filenames from stdin rather than command-line.
+--recursive=yes (default) : Dump directories, recursively.
+--recursive=no : Dump files only.
 To apply tags in <tagfile> printed by $0 (any --format=...), run:
   _mmfs_tag --stdin --mode=change < <tagfile>
+It follows symlinks.
 " if !@ARGV or $ARGV[0] eq "--help";
 my($printfn);
 my $format = "sh";
 my $do_print_empty = 1;
 my $is_stdin = 0;
+my $is_recursive = 1;
 my $i = 0;
 while ($i < @ARGV) {
   my $arg = $ARGV[$i++];
@@ -865,6 +869,8 @@ while ($i < @ARGV) {
   elsif ($arg =~ m@\A--format=@) { die "$0: fatal: unknown flag value: $arg\n" }
   elsif ($arg eq "--print-empty=yes") { $do_print_empty = 1 }
   elsif ($arg eq "--print-empty=no") { $do_print_empty = 0 }
+  elsif ($arg eq "--recursive=yes") { $is_recursive = 1 }
+  elsif ($arg eq "--recursive=no") { $is_recursive = 0 }
   elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
   elsif ($arg =~ m@\A--printfn=(.*)@s) { $printfn = $1 }
   else { die "$0: fatal: unknown flag: $arg\n" }
@@ -907,8 +913,9 @@ my $C=0;  my $EC=0;  my $HC=0;
 sub dumpf($) {
   my $fn0 = $_[0];
   #print "  $fn0\n";
+  return if !-f($fn0);
   if ($fn0 =~ y@\n@@) {
-    print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; return
+    print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; $EC++; return
   }
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
@@ -928,18 +935,33 @@ sub dumpf($) {
   }
 }
 
+sub dumpr($) {
+  my $path = $_[0];
+  if (-d($path)) {
+    require File::Find;  # Standard Perl module.
+    File::Find::find(
+        {
+          wanted => sub { dumpf($_) },
+          no_chdir => 1,
+        }, $path);
+  } else {
+    dumpf($path);
+  }
+}
+
+my $dumpp_func = $is_recursive ? \&dumpr : \&dumpf;
 if ($is_stdin) {
   my $f;
   die if !open($f, "<&3");
   my $fn0;
   while (defined($fn0 = <$f>)) {
     chomp($fn0);
-    dumpf($fn0);
+    $dumpp_func->($fn0);
   }
   die if !close($f);
 } else {
   for my $fn0 (@ARGV) {
-    dumpf($fn0);
+    $dumpp_func->($fn0);
   }
 }
 
