@@ -796,7 +796,7 @@ function _mmfs_dump() {
 	# Imp: make this a default option
         # SUXX: prompt questions may not contain macros
         # SUXX: no way to signal an error
-	perl -w -- - _mmfs_dump "$@" <<'END'
+	perl -w -- - _mmfs_dump "$@" 3>&0 <<'END'
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
 $0 = shift(@ARGV);
@@ -846,17 +846,20 @@ Flags:
 --format=colon: Print in the colon format: <tags> :: <filename>
 --format=getfattr : Print the same output as: getfattr -e text
 --format=mfi : Print in the mediafileinfo format.
+--stdin : Get filenames from stdin rather than command-line.
 To apply tags in <tagfile> printed by $0 (any --format=...), run:
   _mmfs_tag --stdin --mode=change < <tagfile>
 " if !@ARGV or $ARGV[0] eq "--help";
 my($printfn);
 my $format = "sh";
 my $do_print_empty = 1;
+my $is_stdin = 0;
 my $i = 0;
 while ($i < @ARGV) {
   my $arg = $ARGV[$i++];
   if ($arg eq "-" or substr($arg, 0, 1) ne "-") { --$i; last }
   elsif ($arg eq "--") { last }
+  elsif ($arg eq "--stdin") { $is_stdin = 1 }
   elsif ($arg eq "--format=sh" or $arg eq "--format=setfattr" or $arg eq "--sh") { $format = "sh" }
   elsif ($arg eq "--format=colon" or $arg eq "--colon") { $format = "colon" }
   elsif ($arg eq "--format=getfattr" or $arg eq "--getfattr") { $format = "getfattr" }
@@ -868,8 +871,11 @@ while ($i < @ARGV) {
   elsif ($arg =~ m@\A--printfn=(.*)@s) { $printfn = $1 }
   else { die "$0: fatal: unknown flag: $arg\n" }
 }
-splice(@ARGV, 0, $i);
-#die "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
+if ($is_stdin) {
+  die "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
+} else {
+  splice(@ARGV, 0, $i);
+}
 
 my $dump_func =
     ($format eq "sh") ? sub {
@@ -900,17 +906,18 @@ die "assert: unknown format: $format\n" if !defined($dump_func);
 
 #print "to these files:\n";
 my $C=0;  my $EC=0;  my $HC=0;
-for my $fn0 (@ARGV) {
+sub dumpf($) {
+  my $fn0 = $_[0];
   #print "  $fn0\n";
   if ($fn0 =~ y@\n@@) {
-    print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; next
+    print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; return
   }
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
     length($tags), 0);
   if ((!defined $got or $got<0) and !$!{ENODATA}) {
-    print STDERR "error: $fn0: $!\n"; $EC++; next
+    print STDERR "error: $fn0: $!\n"; $EC++; return
   }
   $tags =~ s@\0.*@@s;
   $tags =~ s@[\s,]+@ @g;  # E.g. get rid of newlines for --format=colon.
@@ -920,6 +927,21 @@ for my $fn0 (@ARGV) {
     ++$HC if length($tags);
     print $dump_func->($tags, defined($printfn) ? $printfn : $fn0);
     #$tags = ":none" if !length($tags); print "    $tags\n";
+  }
+}
+
+if ($is_stdin) {
+  my $f;
+  die if !open($f, "<&3");
+  my $fn0;
+  while (defined($fn0 = <$f>)) {
+    chomp($fn0);
+    dumpf($fn0);
+  }
+  die if !close($f);
+} else {
+  for my $fn0 (@ARGV) {
+    dumpf($fn0);
   }
 }
 
