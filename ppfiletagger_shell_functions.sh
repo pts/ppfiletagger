@@ -320,10 +320,10 @@ if (@ARGV and $ARGV[0] eq "--stdin") {
       $tagspec =~ s@\s+\Z(?!\n)@@;
       apply_tagspec($tagspec_prefix . $tagspec, $mode, [$filename], 1);
     } elsif ($line =~ m@^#[ \t\r\n]@) {
-    } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+user.mmfs.tags[ \t]+($sharg_re)[ \t]*$@o) {
+    } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+user.mmfs.tags[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*$@o) {
       my $filename = $sharg_decode->($1);
       apply_tagspec($tagspec_prefix, ($mode or "."), [$filename], 1);
-    } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+user.mmfs.tags[ \t]+-v[ \t]+($sharg_re)[ \t]+($sharg_re)[ \t]*@o) {
+    } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+user.mmfs.tags[ \t]+-v[ \t]+($sharg_re)[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*$@o) {
       my($tagspec, $filename) = ($sharg_decode->($1), $sharg_decode->($2));
       apply_tagspec($tagspec_prefix . $tagspec, ($mode or "."), [$filename], 1);
     } elsif ($line !~ m@\S@) {
