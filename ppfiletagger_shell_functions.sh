@@ -12,9 +12,10 @@ function _mmfs_tag() {
 	# Imp: make this a default option
         # SUXX: prompt questions may not contain macros
         # SUXX: no way to signal an error
-	perl -w -- - "$@" 3>&0 <<'END'
+	perl -w -- - _mmfs_tag "$@" 3>&0 <<'END'
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
+$0 = shift(@ARGV);
 sub get_archname() {
   # This is still slow: return (eval { require Config; die if !%Config::Config; $Config::Config{archname} } or "");
   for my $dir (@INC) { my $fn = "$dir/Config.pm"; if (open(my($f), "<", $fn)) { my $S = join("", <$f>); close($f); return $1 if $S =~ m@\n[ \t]+archname[ \t]*=>[ \t]*[\x27"]([^-\x27"\\]+-)@; last } } ""
@@ -75,22 +76,24 @@ my $known_tags = read_tags_file("$ENV{HOME}/.ppfiletagger_tags");
 my($C, $KC, $EC) = (0, 0, 0);
 my $pmtag_re = qr/(---|[-+]?)((?:v:)?(?:$tagchar_re)+)/o;
 
-sub apply_tagspec($$$) {
-  my($tagspec, $filenames, $is_verbose) = @_;
+sub apply_tagspec($$$$) {
+  my($tagspec, $mode, $filenames, $is_verbose) = @_;
   # Parse $tagspec (<tagpec>).
-  $tagspec = "" if !defined $tagspec;
+  $tagspec = "" if !defined($tagspec);
   $tagspec =~ s@^[.]/@@;  # Prepended my Midnight Commander.
+  $mode = "++" if !defined($mode) or !length($mode);
+  die "fatal: bad mode: $mode\n" if $mode ne "." and $mode ne "+" and $mode ne "++";
   my @ptags;
   my @mtags;
   my @unknown_tags;
   my %fmtags_hash;
   # Overwrite tags if starts with a dot. Used by qiv-command.
-  my $prefix = $tagspec =~ s@\A\s*([.]|[+]|[+][+])(?:[\s,]+|\Z)@@ ? $1 : "++";
-  my $tag_mode = $prefix eq "." ? "overwrite" : $prefix eq "+" ? "merge" : "change";
-  my $do_overwrite = ($prefix eq ".") + 0;
-  my $do_merge = ($prefix eq "+") + 0;
+  $mode = $1 if $tagspec =~ s@\A\s*([.]|[+]|[+][+])(?:[\s,]+|\Z)@@;
+  my $tag_mode = $mode eq "." ? "overwrite" : $mode eq "+" ? "merge" : "change";
+  my $do_overwrite = ($mode eq ".") + 0;
+  my $do_merge = ($mode eq "+") + 0;
   my @tags = split(/[\s,]+/, $tagspec);
-  my $tagspecmsg = $prefix eq "++" ? "@tags" : "$prefix @tags";
+  my $tagspecmsg = $mode eq "++" ? "@tags" : "$mode @tags";
   if (@tags == 1 and $do_overwrite and $tags[0] eq ":none") {
     shift @tags;
   } elsif (@tags and $tags[0] eq "-*") {
@@ -255,7 +258,7 @@ sub apply_tagspec($$$) {
         print "\007bad tags ($tagspecmsg), skipping other files\n"; exit
       } else { print "    error: $!\n"; $EC++ }
     } else {
-      print "    applied tagspec: $tagspec\n" if $is_verbose;
+      print "    applied tagspec: $tagspecmsg\n" if $is_verbose;
       $C++
     }
   }
@@ -263,12 +266,39 @@ sub apply_tagspec($$$) {
 }
 
 die "Usage: $0 \x27tagspec\x27 filename1 ...
-     or echo \"tagspec :: filename\" ... | $0 --stdin\n" if
-     !@ARGV or $ARGV[0] eq "--help";
+    or $0 --stdin [<flag> ...] < <tagfile>
+<tagfile> contains:
+* Empty lines and comments starting with `#' + whitespace.
+* Lines of the form: <tagspec> :: <filename>
+* Lines of the form: setfattr -n user.mmfs.tags -v '<tags>' '<filename>'
+* Lines of the form: setfattr -x user.mmfs.tags '<filename>'
+* Output of: getfattr -hR -e text -n user.mmfs.tags --absolute-names
+Valid modes for --stdin:
+* --mode=change is like --prefix=++
+* --mode=overwrite == --mode=set == --set is like --prefix=.
+* --mode=merge == --merge is like --prefix=+
+The default for setfattr and getfattr is --set, otherwise --mode=change.
+" if !@ARGV or $ARGV[0] eq "--help";
 my $tagspecmsg = "...";
 print "to these files:\n";
 my $action = "modified";
 if (@ARGV and $ARGV[0] eq "--stdin") {
+  my $mode;
+  my $tagspec_prefix = "";
+  my $i = 0;
+  while ($i < @ARGV) {
+    my $arg = $ARGV[$i++];
+    if ($arg eq "-" or substr($arg, 0, 1) ne "-") { --$i; last }
+    elsif ($arg eq "--") { last }
+    elsif ($arg eq "--stdin") {}
+    elsif ($arg eq "--mode=change" or $arg eq "--mode=++") { $mode = "++" }
+    elsif ($arg eq "--mode=overwrite" or $arg eq "--mode=set" or $arg eq "--mode=++" or $arg eq "-overwrite" or $arg eq "--set") { $mode = "." }
+    elsif ($arg eq "--mode=merge" or $arg eq "--mode=+" or $arg eq "--merge") { $mode = "+" }
+    elsif ($arg =~ m@\A--mode=@) { die "$0: fatal: unknown flag value: $arg\n" }
+    elsif ($arg =~ m@\A--prefix=(.*)@s) { $tagspec_prefix = "$1 " }
+    else { die "$0: fatal: unknown flag: $arg\n" }
+  }
+  die "$0: fatal: too many command-line arguments ($i) (@ARGV)\n" if $i != @ARGV;
   my $sharg_re = qr@[^\s()\\\x27"`;&<>*?\[\]$|#]+|\x27(?:[^\x27]++|\x27\\\x27\x27)*+\x27@;
   my $sharg_decode = sub { my $s = $_[0]; $s =~ s@\x27\\\x27\x27@\x27@g if $s =~ s@\A\x27(.*)\x27@$1@s; $s };
   my($line, $cfilename, $lineno);
@@ -276,39 +306,37 @@ if (@ARGV and $ARGV[0] eq "--stdin") {
   die if !open($f, "<&3");
   while (defined($line = <$f>)) {
     $lineno = $.;
-    if ($line =~ m@^# file: (.*)$@) {
-      # Output format of: getfattr -hR -e text -n user.mmfs.tags
+    if ($line =~ m@^# file: (.*)$@) {  # Output of getfattr.
       $cfilename = $1
-    } elsif ($line =~ /^([^#\n=]+)="(.*?)"$/) {
-      # Output format of: getfattr -hR -e text -n user.mmfs.tags
+    } elsif ($line =~ /^([^#\n=]+)="(.*?)"$/) {  # Output of getfattr.
       my($key, $value) = ($1, $2);
       die "$0: bad key: $key ($lineno)\n" if $key =~ /["\\]/;
       die "$0: missing filename for key: $key ($lineno)\n" if
            !defined($cfilename);
-      apply_tagspec($value, [$cfilename], 1) if $key eq $key0;
+      apply_tagspec($tagspec_prefix . $value, ($mode or "."), [$cfilename], 1) if $key eq $key0;
     } elsif ($line =~ m@(.*?):: (.*?)$@) {
       my($tagspec, $filename) = ($1, $2);
       $tagspec =~ s@\A\s+@@;
       $tagspec =~ s@\s+\Z(?!\n)@@;
-      apply_tagspec($tagspec, [$filename], 1);
+      apply_tagspec($tagspec_prefix . $tagspec, $mode, [$filename], 1);
     } elsif ($line =~ m@^#[ \t\r\n]@) {
     } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+user.mmfs.tags[ \t]+($sharg_re)[ \t]*$@o) {
       my $filename = $sharg_decode->($1);
-      apply_tagspec(".", [$filename], 1);
+      apply_tagspec($tagspec_prefix, ($mode or "."), [$filename], 1);
     } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+user.mmfs.tags[ \t]+-v[ \t]+($sharg_re)[ \t]+($sharg_re)[ \t]*@o) {
       my($tagspec, $filename) = ($sharg_decode->($1), $sharg_decode->($2));
-      apply_tagspec(". $tagspec", [$filename], 1);
+      apply_tagspec($tagspec_prefix . $tagspec, ($mode or "."), [$filename], 1);
     } elsif ($line !~ m@\S@) {
       $cfilename = undef
     } else {
-      die "Unexpected input line ($lineno): $line";
+      die "$0: fatal: bad tagfile line ($lineno): $line";
     }
   }
   die if !close($f);
 } else {
   my $tagspec = shift(@ARGV);
   my $tag_mode;
-  ($tag_mode, $tagspecmsg) = apply_tagspec($tagspec, \@ARGV, 0);
+  ($tag_mode, $tagspecmsg) = apply_tagspec($tagspec, "++", \@ARGV, 0);
   $action = $tag_mode eq "overwrite" ? "overwritten" : $tag_mode eq "merge" ? "merged" : "changed";
 }
 print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
