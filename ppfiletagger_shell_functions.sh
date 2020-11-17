@@ -328,11 +328,12 @@ if (@ARGV == 2 and $ARGV[0] eq "--stdin" and $ARGV[1] ne "-" and substr($ARGV[1]
     $lineno = $.;
     if ($line =~ m@^# file: (.*)$@) {  # Output of getfattr.
       $cfilename = $1
-    } elsif ($line =~ /^([^#\n=]+)="(.*?)"$/) {  # Output of getfattr.
+    } elsif ($line =~ /^([^#\n=:"]+)(?:="(.*?)")?$/) {  # Output of getfattr.
       my($key, $value) = ($1, $2);
       die "$0: bad key: $key ($lineno)\n" if $key =~ /["\\]/;
       die "$0: missing filename for key: $key ($lineno)\n" if
            !defined($cfilename);
+      $value = "" if !defined($value);
       apply_tagspec($tagspec_prefix . $value, ($mode or "."), [$cfilename], 1) if $key eq $key0;
     } elsif ($line =~ m@(.*?):: (.*?)$@) {
       my($tagspec, $filename) = ($1, $2);
