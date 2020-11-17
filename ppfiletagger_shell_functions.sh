@@ -142,7 +142,7 @@ sub apply_tagspec($$$$) {
   %new_pmvtags = map { m@\Av:(.*)@s ? ($1 => 1) : () } (@ptags, @mtags) if $do_merge;
   # vvv Dat: menu item is not run on a very empty string
   my $is_nop = (!@ptags and !@mtags and !$do_overwrite);
-  if ($is_nop) {
+  if ($is_nop and !$is_verbose) {
     print STDERR "warning: no tags specified ($tagspecmsg)\n";
     # exit 2;
     # We continue so that we can report file I/O errors.
@@ -269,9 +269,10 @@ die "Usage: $0 \x27tagspec\x27 filename1 ...
     or $0 --stdin [<flag> ...] < <tagfile>
 <tagfile> contains:
 * Empty lines and comments starting with `#' + whitespace.
-* Lines of the form: <tagspec> :: <filename>
-* Lines of the form: setfattr -n user.mmfs.tags -v '<tags>' '<filename>'
-* Lines of the form: setfattr -x user.mmfs.tags '<filename>'
+* Lines of the colon form: <tagspec> :: <filename>
+* Lines of the setfattr form: setfattr -n user.mmfs.tags -v '<tags>' '<filename>'
+* Lines of the setfattr form: setfattr -x user.mmfs.tags '<filename>'
+* Lines of the mediafileinfo form: format=... ... tags=<tags> ... f=<filename>
 * Output of: getfattr -hR -e text -n user.mmfs.tags --absolute-names '<path>'
 Valid modes for --stdin:
 * --mode=change is like --prefix=++
@@ -326,6 +327,11 @@ if (@ARGV and $ARGV[0] eq "--stdin") {
     } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+user.mmfs.tags[ \t]+-v[ \t]+($sharg_re)[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*$@o) {
       my($tagspec, $filename) = ($sharg_decode->($1), $sharg_decode->($2));
       apply_tagspec($tagspec_prefix . $tagspec, ($mode or "."), [$filename], 1);
+    } elsif ($line =~ m@^format=(?:[^ ]+)(?= )(.*?) f=(.*)$@) {  # mediafileinfo form.
+      my $filename = $2;
+      $line = $1;
+      my $tagspec = $line =~ m@ tags=([^ ]+)@ ? $1 : "";
+      apply_tagspec($tagspec_prefix . $tagspec, $mode, [$filename], 1);
     } elsif ($line !~ m@\S@) {
       $cfilename = undef
     } else {
