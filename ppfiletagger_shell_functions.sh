@@ -402,7 +402,8 @@ sub get_xattr_syscalls() {
 my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
 my $C=0;  my $EC=0;
 $0="_mmfs_unify_tags";
-die "Usage: $0 <file1> <file2>
+die "$0: makes both files have to union of tags
+Usage: $0 <file1> <file2>
      or echo \"... \x27file1\x27 ... \x27file2\x27 ...\" ... | $0 --stdin\n" if
      @ARGV!=2 and @ARGV!=1;
 print "unifying tags\n";
