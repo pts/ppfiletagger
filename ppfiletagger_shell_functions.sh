@@ -272,7 +272,7 @@ die "Usage: $0 \x27tagspec\x27 filename1 ...
 * Lines of the form: <tagspec> :: <filename>
 * Lines of the form: setfattr -n user.mmfs.tags -v '<tags>' '<filename>'
 * Lines of the form: setfattr -x user.mmfs.tags '<filename>'
-* Output of: getfattr -hR -e text -n user.mmfs.tags --absolute-names
+* Output of: getfattr -hR -e text -n user.mmfs.tags --absolute-names '<path>'
 Valid modes for --stdin:
 * --mode=change is like --prefix=++
 * --mode=overwrite == --mode=set == --set is like --prefix=.
