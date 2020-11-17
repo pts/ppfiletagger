@@ -343,7 +343,7 @@ if (@ARGV == 2 and $ARGV[0] eq "--stdin" and $ARGV[1] ne "-" and substr($ARGV[1]
       $tagspec =~ s@\A\s+@@;
       $tagspec =~ s@\s+\Z(?!\n)@@;
       apply_tagspec($tagspec_prefix . $tagspec, $mode, [$filename], 1);
-    } elsif ($line =~ m@^#[ \t\r\n]@) {
+    } elsif ($line =~ m@^#@) {  # Comment.
     } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+user.mmfs.tags[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*$@o) {
       my $filename = $sharg_decode->($1);
       apply_tagspec($tagspec_prefix, ($mode or "."), [$filename], 1);
