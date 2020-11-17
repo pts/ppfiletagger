@@ -863,9 +863,10 @@ function _mmfs_fixprincipal() {
 #** Displays all known tags whose prefix is $1, displaying at most $2 tags.
 #** @example _mmfs_expand_tag ta
 function _mmfs_expand_tag() {
-	perl -w -- - "$@" <<'END'
+	perl -w -- - _mmfs_expand_tag "$@" <<'END'
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
+$0 = shift(@ARGV);
 # Simple superset of UTF-8 words.
 my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
                            [\xE0-\xEF] [\x80-\xBF]{2} |
