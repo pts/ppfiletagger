@@ -40,7 +40,7 @@ my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
                            [\xF0-\xF4] [\x80-\xBF]{3}) /xo;
 my $key0 = "user.mmfs.tags";
 
-# Read the tag list file (of lines <tag> or <tag>:<description> or
+# Reads the tag list file (of lines <tag> or <tag>:<description> or
 # <space><comment> or #<comment>).
 sub read_tags_file($) {
   my $tags_fn = $_[0];
@@ -72,41 +72,43 @@ sub read_tags_file($) {
 }
 
 my $known_tags = read_tags_file("$ENV{HOME}/.ppfiletagger_tags");
-my ($C, $KC, $EC, $do_overwrite) = (0, 0, 0, 0);
+my($C, $KC, $EC) = (0, 0, 0);
+my $pmtag_re = qr/(---|[-+]?)((?:v:)?(?:$tagchar_re)+)/o;
 
-sub do_tag($$$) {
-  my ($tags, $filenames, $is_verbose) = @_;
-  my $pmtag_re = qr/(---|[-+]?)((?:v:)?(?:$tagchar_re)+)/o;
-  $tags="" if !defined $tags;
-  $tags=~ s@^[.]/@@;  # Prepended my Midnight Commander.
-  # Parse the +tag and -tag specification in the command line
+sub apply_tagspec($$$) {
+  my($tagspec, $filenames, $is_verbose) = @_;
+  # Parse $tagspec (<tagpec>).
+  $tagspec = "" if !defined $tagspec;
+  $tagspec =~ s@^[.]/@@;  # Prepended my Midnight Commander.
   my @ptags;
   my @mtags;
   my @unknown_tags;
   my %fmtags_hash;
-  $do_overwrite = 0;
   # Overwrite tags if starts with a dot. Used by qiv-command.
-  $do_overwrite = 1 if $tags =~ s@\A\s*[.](?:[\s,]|\Z)@@;
-  my @tags = split(/[\s,]+/, $tags);
+  my $prefix = $tagspec =~ s@\A\s*([.]|[+]|[+][+])(?:[\s,]+|\Z)@@ ? $1 : "++";
+  my $tag_mode = $prefix eq "." ? "overwrite" : $prefix eq "+" ? "merge" : "change";
+  my $do_overwrite = ($prefix eq ".") + 0;
+  my $do_merge = ($prefix eq "+") + 0;
+  my @tags = split(/[\s,]+/, $tagspec);
+  my $tagspecmsg = $prefix eq "++" ? "@tags" : "$prefix @tags";
   if (@tags == 1 and $do_overwrite and $tags[0] eq ":none") {
     shift @tags;
-    $do_overwrite = 1;
   } elsif (@tags and $tags[0] eq "-*") {
     shift @tags;
-    $do_overwrite = 1;
+    $do_overwrite = 1; $do_merge = 0;
   }
-  for my $pmitem (@tags) {
-    if ($pmitem !~ /\A$pmtag_re\Z(?!\n)/) {
+  for my $pmtag (@tags) {
+    if ($pmtag !~ /\A$pmtag_re\Z(?!\n)/) {
       # TODO(pts): Report this later.
-      print "\007bad tag item syntax ($pmitem), skipping files\n"; exit 3;
+      print "\007bad tag item syntax ($pmtag), skipping files\n"; exit 3;
     }
     my $tag = $2;
     if ($do_overwrite and $1 eq "-") {
-      print "\007unexpected sign ($pmitem), skipping files\n"; exit 9;
+      print "\007unexpected sign ($pmtag), skipping files\n"; exit 9;
     }
     # Use triple negation to remove unknown tags or to remove a tag even if
     # it is specified as a positive tag. (In the latter case, remove takes
-    # precedence, no matter the order in $tags.)
+    # precedence, no matter the order in $tagspec.)
     if ($1 eq "---") {
       push @mtags, $tag;  # Force remove, don't check %known_tags.
       $fmtags_hash{$tag} = 1;
@@ -131,22 +133,28 @@ sub do_tag($$$) {
       exit 8;
     }
   }
+  my %new_vtags;
+  %new_vtags = map { m@\Av:(.*)@s ? ($1 => 1) : () } @ptags if $do_merge;
+  my %new_pmvtags;
+  %new_pmvtags = map { m@\Av:(.*)@s ? ($1 => 1) : () } (@ptags, @mtags) if $do_merge;
   # vvv Dat: menu item is not run on a very empty string
   my $is_nop = (!@ptags and !@mtags and !$do_overwrite);
   if ($is_nop) {
-    print STDERR "warning: no tags specified ($tags)\n";
+    print STDERR "warning: no tags specified ($tagspecmsg)\n";
     # exit 2;
+    # We continue so that we can report file I/O errors.
   }
 
-  # Read file xattrs, apply updates, write file xattrs.
-  for my $fn0 (@$filenames) {
+  # Read file xattrs, apply updates from @ptags, @mtags and %new_vtags,
+  # write file xattrs.
+  FN0: for my $fn0 (@$filenames) {
     print "  $fn0\n";
     if ($is_nop) {
-      print "    unchanged by tagspec: $tags\n" if $is_verbose;
-      $KC++; next
+      print "    unchanged by tagspec: $tagspecmsg\n" if $is_verbose;
+      $KC++; next FN0
     }
     if (not -f $fn0) {
-      print "    error: not a file\n"; $EC++; next
+      print "    error: not a file\n"; $EC++; next FN0
     }
 
     my $key = $key0; # Dat: must be in $var
@@ -154,8 +162,10 @@ sub do_tag($$$) {
     my %old_tags_hash;
     my @old_tags;
     my $old_tags_str = "";
+    my($ptags_ref, $mtags_ref) = (\@ptags, \@mtags);
 
-    # Populates $old_tags_str %old_tags_hash and $old_tags.
+    # Populates $old_tags_str, %old_tags_hash, @old_tags, maybe modifies
+    # $ptags_ref and $mtags_ref.
     {
       my $oldtags="\0"x65535;
       $got = syscall($SYS_getxattr, $fn0, $key, $oldtags,
@@ -163,37 +173,60 @@ sub do_tag($$$) {
       if ((!defined $got or $got<0) and !$!{ENODATA}) {
         my $is_eio = $!{EIO};
         print "    error getting: $!\n"; $EC++;
-        next if !$is_eio or !$do_overwrite;
+        next FN0 if !($is_eio and $do_overwrite);
         $oldtags = $old_tags_str = "?";
         $old_tags_hash{"?"} = 1;
         push @old_tags, "?";
       } else {
-        $oldtags=~s@\0.*@@s;
+        $oldtags =~ s@\0.*@@s;
         $old_tags_str = $oldtags;
-        $oldtags =~ s/(\S+)/ $old_tags_hash{$1} = @old_tags;
-                             push @old_tags, $1 /ge;
+        for my $tag (split(/\s+/, $oldtags)) {
+          if (!exists($old_tags_hash{$tag})) {
+            $old_tags_hash{$tag} = @old_tags;
+            push @old_tags, $tag;
+          }
+        }
+      }
+      if ($do_merge) {  # Maybe modifies $ptags_ref and $mtags_ref.
+        my %old_vtags = map { m@\Av:(.*)@s ? ($1 => 1) : () } @old_tags;
+        my %both_vtags = map { exists($old_vtags{$_}) ? ($_ => 1) : () } keys %new_vtags;
+        my %ptags = map { $_ => 1 } @ptags;
+        my %mtags = map { $_ => 1 } @mtags;
+        if (%both_vtags) {
+          my @conflicting_tags = sort grep { exists($old_tags_hash{$_}) ? (!exists($ptags{$_}) and !exists($mtags{$_})) : exists($ptags{$_}) } keys(%both_vtags);
+          if (@conflicting_tags) {
+            print "    error merging tags: @conflicting_tags\n"; $EC++; next FN0
+          }
+        }
+        $ptags_ref = [grep { (!exists($old_vtags{$_}) or exists($new_pmvtags{$_})) and !exists($old_tags_hash{$_}) } @$ptags_ref];
+        $mtags_ref = [grep { (!exists($old_vtags{$_}) or exists($new_pmvtags{$_})) and  exists($old_tags_hash{$_}) } @$mtags_ref];
+        push @$mtags_ref, sort grep { !exists($ptags{$_}) and !exists($mtags{$_}) and exists($old_tags_hash{$_}) } keys(%new_vtags);
+        #print "    merge old_tags=(@old_tags) ptags=(@$ptags_ref) mtags=(@$mtags_ref)\n";
+        if (!@$ptags_ref and !@$mtags_ref) {  # Just a speed optimization, we also check below.
+          print "    unchanged by tagspec: $tagspecmsg\n" if $is_verbose;
+          $KC++; next FN0
+        }
       }
     }
-
     my @new_tags = $do_overwrite ? () : @old_tags;
     my %new_tags_hash = $do_overwrite ? () : %old_tags_hash;
     # Keep the original word order while updating.
-    for my $tag (@ptags) {
-      if (!exists $new_tags_hash{$tag}) {
+    for my $tag (@$ptags_ref) {
+      if (!exists($new_tags_hash{$tag})) {
         $new_tags_hash{$tag} = @new_tags;
         push @new_tags, $tag;
       }
     }
-    for my $tag (@mtags) {
-      if (exists $new_tags_hash{$tag}) {
+    for my $tag (@$mtags_ref) {
+      if (exists($new_tags_hash{$tag})) {
         $new_tags[$new_tags_hash{$tag}] = undef;
       }
     }
     @new_tags = grep { defined $_ } @new_tags;
-    #print "@new_tags;;@old_tags\n"; next;
+    #print "@new_tags;;@old_tags\n"; next FN0;
     if (join("\0", @old_tags) eq join("\0", @new_tags)) {
-      print "    unchanged by tagspec: $tags\n" if $is_verbose;
-      $KC++; next
+      print "    unchanged by tagspec: $tagspecmsg\n" if $is_verbose;
+      $KC++; next FN0
     }
     my $set_tags = join(" ", @new_tags);
     $key=$key0;
@@ -211,33 +244,34 @@ sub do_tag($$$) {
         # Try to restore the original value;
         syscall($SYS_setxattr, $fn0, $key, $old_tags_str,
                 length($old_tags_str), 0);
-        next;
+        next FN0;
       }
     }
     $got = length($set_tags) == 0 ?
         syscall($SYS_removexattr, $fn0, $key) :
         syscall($SYS_setxattr, $fn0, $key, $set_tags, length($set_tags), 0);
     if (!defined $got or $got<0) {
-      if ("$!" eq "Cannot assign requested address") {
-        print "\007bad tags ($tags), skipping other files\n"; exit
+      if ($!{EADDRNOTAVAIL} or "$!" eq "Cannot assign requested address") {  # This doesn't happen with ppfiletagger.
+        print "\007bad tags ($tagspecmsg), skipping other files\n"; exit
       } else { print "    error: $!\n"; $EC++ }
     } else {
-      print "    applied tagspec: $tags\n" if $is_verbose;
+      print "    applied tagspec: $tagspec\n" if $is_verbose;
       $C++
     }
   }
+  ($tag_mode, $tagspecmsg)
 }
 
 die "Usage: $0 \x27tagspec\x27 filename1 ...
      or echo \"tagspec :: filename\" ... | $0 --stdin\n" if
      !@ARGV or $ARGV[0] eq "--help";
-my $tags_to_log = "...";
+my $tagspecmsg = "...";
 print "to these files:\n";
 my $action = "modified";
 if (@ARGV and $ARGV[0] eq "--stdin") {
   my $sharg_re = qr@[^\s()\\\x27"`;&<>*?\[\]$|#]+|\x27(?:[^\x27]++|\x27\\\x27\x27)*+\x27@;
   my $sharg_decode = sub { my $s = $_[0]; $s =~ s@\x27\\\x27\x27@\x27@g if $s =~ s@\A\x27(.*)\x27@$1@s; $s };
-  my ($line, $cfilename, $lineno);
+  my($line, $cfilename, $lineno);
   my $f;
   die if !open($f, "<&3");
   while (defined($line = <$f>)) {
@@ -247,23 +281,23 @@ if (@ARGV and $ARGV[0] eq "--stdin") {
       $cfilename = $1
     } elsif ($line =~ /^([^#\n=]+)="(.*?)"$/) {
       # Output format of: getfattr -hR -e text -n user.mmfs.tags
-      my ($key, $value) = ($1, $2);
+      my($key, $value) = ($1, $2);
       die "$0: bad key: $key ($lineno)\n" if $key =~ /["\\]/;
       die "$0: missing filename for key: $key ($lineno)\n" if
            !defined($cfilename);
-      do_tag($value, [$cfilename], 1) if $key eq $key0;
+      apply_tagspec($value, [$cfilename], 1) if $key eq $key0;
     } elsif ($line =~ m@(.*?):: (.*?)$@) {
-      my ($tagspec, $filename) = ($1, $2);
+      my($tagspec, $filename) = ($1, $2);
       $tagspec =~ s@\A\s+@@;
       $tagspec =~ s@\s+\Z(?!\n)@@;
-      do_tag($tagspec, [$filename], 1);
+      apply_tagspec($tagspec, [$filename], 1);
     } elsif ($line =~ m@^#[ \t\r\n]@) {
     } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+user.mmfs.tags[ \t]+($sharg_re)[ \t]*$@o) {
       my $filename = $sharg_decode->($1);
-      do_tag(".", [$filename], 1);
+      apply_tagspec(".", [$filename], 1);
     } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+user.mmfs.tags[ \t]+-v[ \t]+($sharg_re)[ \t]+($sharg_re)[ \t]*@o) {
-      my($tags, $filename) = ($sharg_decode->($1), $sharg_decode->($2));
-      do_tag(". $tags", [$filename], 1);
+      my($tagspec, $filename) = ($sharg_decode->($1), $sharg_decode->($2));
+      apply_tagspec(". $tagspec", [$filename], 1);
     } elsif ($line !~ m@\S@) {
       $cfilename = undef
     } else {
@@ -272,17 +306,14 @@ if (@ARGV and $ARGV[0] eq "--stdin") {
   }
   die if !close($f);
 } else {
-  my $tags = shift(@ARGV);
-  do_tag($tags, \@ARGV, 0);
-  $action = "overwritten" if $do_overwrite;
-  $tags_to_log = $tags;
-  $tags_to_log =~ s@^[.]/@@;  # Prepended my Midnight Commander.
-  $tags_to_log =~ s@[,\s]+@ @g;
-  $tags_to_log =~ s@^[.]\s+@@ if $do_overwrite;
+  my $tagspec = shift(@ARGV);
+  my $tag_mode;
+  ($tag_mode, $tagspecmsg) = apply_tagspec($tagspec, \@ARGV, 0);
+  $action = $tag_mode eq "overwrite" ? "overwritten" : $tag_mode eq "merge" ? "merged" : "changed";
 }
 print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 print "kept tags of $KC file@{[$KC==1?q():q(s)]}\n" if $KC;
-print "$action tags of $C file@{[$C==1?q():q(s)]}: $tags_to_log\n";
+print "$action tags of $C file@{[$C==1?q():q(s)]}: $tagspecmsg\n";
 exit 1 if $EC;
 END
 }
