@@ -787,7 +787,6 @@ print STDERR "warning: had error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 ' -- "$@"
 }
 
-#** Output format: setfattr -n user.mmfs.tags.modify -v TAGS FILENAME
 #** @example _mmfs_dump [--printfn=...] file1 file2 ...
 #** @example _copyattr() { _mmfs_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne 'print if s@^rm -f @_copyattr @ and s@ #, keep @ @' >_d.sh; source _d.sh | sh
 function _mmfs_dump() {
@@ -797,19 +796,10 @@ function _mmfs_dump() {
 	# Imp: make this a default option
         # SUXX: prompt questions may not contain macros
         # SUXX: no way to signal an error
-	perl -w -- - "$@" <<'END'
+	perl -w -- - _mmfs_dump "$@" <<'END'
 $ENV{LC_MESSAGES}=$ENV{LANGUAGE}="C"; # Make $! English
 use integer; use strict;  $|=1;
-sub fnq($) {
-  #return $_[0] if substr($_[0],0,1)ne'-'
-  return $_[0] if $_[0]!~m@[^-_/.0-9a-zA-Z]@;
-  my $S=$_[0];
-  $S=~s@'@'\\''@g;
-  "'$S'"
-}
-my $printfn;
-if (@ARGV and $ARGV[0]=~/\A--printfn=(.*)/s) { $printfn=$1; shift @ARGV }
-if (@ARGV and $ARGV[0] eq '--') { shift @ARGV }
+$0 = shift(@ARGV);
 sub get_archname() {
   # This is still slow: return (eval { require Config; die if !%Config::Config; $Config::Config{archname} } or "");
   for my $dir (@INC) { my $fn = "$dir/Config.pm"; if (open(my($f), "<", $fn)) { my $S = join("", <$f>); close($f); return $1 if $S =~ m@\n[ \t]+archname[ \t]*=>[ \t]*[\x27"]([^-\x27"\\]+-)@; last } } ""
@@ -829,33 +819,117 @@ sub get_xattr_syscalls() {
   @result
 }
 my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
+
+sub fnq($) {
+  #return $_[0] if substr($_[0],0,1)ne'-'
+  return $_[0] if $_[0]!~m@[^-_/.0-9a-zA-Z]@;
+  my $S=$_[0];
+  $S=~s@'@'\\''@g;
+  "'$S'"
+}
+
+sub gfaq($) {
+  my $S = $_[0];
+  $S =~ s@(["\\])@\\$1@g;
+  $S =~ s@([\r\n])@ sprintf("\\%03o", ord($1)) @ge;
+  # No need to escape [\x80-\xff] , `getfattr -e text' doesn't do it either.
+  qq("$S")
+}
+
+die "$0: dumps tags on files to stdout
+Usage: $0 [<flag> ...] <filename> [...] > <tagfile>
+Flags:
+--printfn=<filename> : In the output, print the specified filename instead.
+--print-empty=yes (default) : Print files without tags.
+--print-empty=no : Hide files without tags.
+--format=sh (default) : Print a series of setfattr commands.
+--format=colon: Print in the colon format: <tags> :: <filename>
+--format=getfattr : Print the same output as: getfattr -e text
+--format=mfi : Print in the mediafileinfo format.
+To apply tags in <tagfile> printed by $0 (any --format=...), run:
+  _mmfs_tag --stdin --mode=change < <tagfile>
+" if !@ARGV or $ARGV[0] eq "--help";
+my($printfn);
+my $format = "sh";
+my $do_print_empty = 1;
+my $i = 0;
+while ($i < @ARGV) {
+  my $arg = $ARGV[$i++];
+  if ($arg eq "-" or substr($arg, 0, 1) ne "-") { --$i; last }
+  elsif ($arg eq "--") { last }
+  elsif ($arg eq "--format=sh" or $arg eq "--format=setfattr" or $arg eq "--sh") { $format = "sh" }
+  elsif ($arg eq "--format=colon" or $arg eq "--colon") { $format = "colon" }
+  elsif ($arg eq "--format=getfattr" or $arg eq "--getfattr") { $format = "getfattr" }
+  elsif ($arg eq "--format=mfi" or $arg eq "--format=mediafileinfo" or $arg eq "--format=mscan" or $arg eq "--mfi" or $arg eq "--mscan") { $format = "mfi" }
+  elsif ($arg =~ m@\A--format=@) { die "$0: fatal: unknown flag value: $arg\n" }
+  elsif ($arg eq "--print-empty=yes") { $do_print_empty = 1 }
+  elsif ($arg eq "--print-empty=no") { $do_print_empty = 0 }
+  elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
+  elsif ($arg =~ m@\A--printfn=(.*)@s) { $printfn = $1 }
+  else { die "$0: fatal: unknown flag: $arg\n" }
+}
+splice(@ARGV, 0, $i);
+#die "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
+
+my $dump_func =
+    ($format eq "sh") ? sub {
+      my($tags, $filename) = @_;
+      length($tags) ?
+          "setfattr -n user.mmfs.tags -v " . fnq($tags) . " -- " . fnq($filename) . "\n" :
+          "setfattr -x user.mmfs.tags -- " . fnq($filename) . "\n"
+    } : ($format eq "colon") ? sub {
+      my($tags, $filename) = @_;
+      "$tags :: $filename\n"
+    } : ($format eq "getfattr") ? sub {
+      my($tags, $filename) = @_;
+      # getfattr always omits files without tags (i.e. without the
+      # user.mmfs.tags extended attribute). Use _mmfs_dump --print-empty=no
+      # to get this behavior.
+      "# file: $filename\nuser.mmfs.tags=" . gfaq($tags). "\n\n"
+    } : ($format eq "mfi") ? sub {
+      my($tags, $filename) = @_;
+      my $tagsc = $tags;
+      $tagsc =~ s@[\s,]+@,@g;
+      $tagsc =~ s@%@%25@g;
+      $tagsc =~ s@\A,+@@; $tagsc =~ s@,+\Z(?!\n)@@;
+      my @st = stat($filename);
+      @st ? "format=?-no-try mtime=$st[9] size=$st[7] tags=$tagsc f=$filename\n"
+          : "format=?-no-try tags=$tagsc f=$filename\n"
+    } : undef;
+die "assert: unknown format: $format\n" if !defined($dump_func);
+
 #print "to these files:\n";
 my $C=0;  my $EC=0;  my $HC=0;
 for my $fn0 (@ARGV) {
   #print "  $fn0\n";
+  if ($fn0 =~ y@\n@@) {
+    print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; next
+  }
   my $key="user.mmfs.tags"; # Dat: must be in $var
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
     length($tags), 0);
   if ((!defined $got or $got<0) and !$!{ENODATA}) {
-    print "error: $fn0: $!\n"; $EC++
-  } else {
-    $tags=~s@\0.*@@s;
-    if ($tags ne"") {
-      $HC++;
-      print "setfattr -n user.mmfs.tags -v ".fnq($tags)." ".
-        fnq(defined$printfn ? $printfn : $fn0)."\n";
-    } else {
-      print "setfattr -x user.mmfs.tags ".
-        fnq(defined$printfn ? $printfn : $fn0)."\n";
-      $tags = ":none";
-    }
-    #print "    $tags\n";
-    $C++;
+    print STDERR "error: $fn0: $!\n"; $EC++; next
+  }
+  $tags =~ s@\0.*@@s;
+  $tags =~ s@[\s,]+@ @g;  # E.g. get rid of newlines for --format=colon.
+  $tags =~ s@\A +@@; $tags =~ s@ +\Z(?!\n)@@;
+  ++$C;
+  if (length($tags) or $do_print_empty) {
+    ++$HC if length($tags);
+    print $dump_func->($tags, defined($printfn) ? $printfn : $fn0);
+    #$tags = ":none" if !length($tags); print "    $tags\n";
   }
 }
-print "# \007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
-print "# shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n"
+
+# We print these messages to STDERR (rather than STDOUT starting with `# '),
+# because some tools don't support extra lines, e.g. `setfattr --restore
+# <tagfile>', which restores based on `_mmfs_dump --forgat=getfattr ... >
+# <tagfile>' doesn't support comments starting with `# '.
+print STDERR "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
+print STDERR "info: shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
+exit 1 if $EC;
 END
 }
 
