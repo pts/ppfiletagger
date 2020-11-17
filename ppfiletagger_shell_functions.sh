@@ -3,7 +3,7 @@
 # by pts@fazekas.hu at Sat Jan 20 22:29:43 CET 2007
 #
 
-#** Adds or removes or sets tags.
+#** Adds or removes tags on files.
 #** @example _mmfs_tag 'tag1 -tag2 ...' file1 file2 ...    # keep tag3
 function _mmfs_tag() {
 	# Midnight Commander menu for movemetafs
@@ -244,6 +244,8 @@ sub apply_tagspec($$$$) {
       $got=syscall($SYS_setxattr, $fn0, $key, $empty, 0, 0);
       if (!defined $got or $got<0) {
         print "    error: $!\n"; $EC++;
+        # FYI: We get EOPNOTSUPP (Operation not supported) if $key doesn't
+        # start with "user." (without the quotes).
         # Try to restore the original value;
         syscall($SYS_setxattr, $fn0, $key, $old_tags_str,
                 length($old_tags_str), 0);
@@ -272,7 +274,8 @@ sub apply_to_multiple($$) {
   ($action, $tagspecmsg)
 }
 
-die "Usage: $0 \x27tagspec\x27 filename1 ...
+die "$0: adds or removes tags on files
+Usage: $0 \x27tagspec\x27 filename1 ...
     or ls | $0 --stdin <tagspec>
     or $0 --stdin [<flag> ...] < <tagfile>
 <tagfile> contains:
@@ -318,7 +321,7 @@ if (@ARGV == 2 and $ARGV[0] eq "--stdin" and $ARGV[1] ne "-" and substr($ARGV[1]
     elsif ($arg =~ m@\A--prefix=(.*)@s) { $tagspec_prefix = "$1 " }
     else { die "$0: fatal: unknown flag: $arg\n" }
   }
-  die "$0: fatal: too many command-line arguments ($i) (@ARGV)\n" if $i != @ARGV;
+  die "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
   my $sharg_re = qr@[^\s()\\\x27"`;&<>*?\[\]$|#]+|\x27(?:[^\x27]++|\x27\\\x27\x27)*+\x27@;
   my $sharg_decode = sub { my $s = $_[0]; $s =~ s@\x27\\\x27\x27@\x27@g if $s =~ s@\A\x27(.*)\x27@$1@s; $s };
   my($line, $cfilename, $lineno);
