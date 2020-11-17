@@ -265,7 +265,15 @@ sub apply_tagspec($$$$) {
   ($tag_mode, $tagspecmsg)
 }
 
+sub apply_to_multiple($$) {
+  my($tagspec, $filenames) = @_;
+  my($tag_mode, $tagspecmsg) = apply_tagspec($tagspec, "++", $filenames, 0);
+  my $action = $tag_mode eq "overwrite" ? "overwritten" : $tag_mode eq "merge" ? "merged" : "changed";
+  ($action, $tagspecmsg)
+}
+
 die "Usage: $0 \x27tagspec\x27 filename1 ...
+    or ls | $0 --stdin <tagspec>
     or $0 --stdin [<flag> ...] < <tagfile>
 <tagfile> contains:
 * Empty lines and comments starting with `#' + whitespace.
@@ -283,7 +291,18 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
 my $tagspecmsg = "...";
 print "to these files:\n";
 my $action = "modified";
-if (@ARGV and $ARGV[0] eq "--stdin") {
+if (@ARGV == 2 and $ARGV[0] eq "--stdin" and $ARGV[1] ne "-" and substr($ARGV[1], 0, 2) ne "--") {
+  # Read filenames from stdin, apply tags in $ARGV[1];
+  my $f;
+  die if !open($f, "<&3");
+  my($tagspec, $filenames) = ($ARGV[1], [<$f>]);
+  die if !close($f);
+  for my $fn0 (@$filenames) { chomp($fn0); }
+  ($action, $tagspecmsg) = apply_to_multiple($tagspec, $filenames);
+} elsif (!(@ARGV and $ARGV[0] eq "--stdin")) {
+  my($tagspec, $filenames) = (shift(@ARGV), \@ARGV);
+  ($action, $tagspecmsg) = apply_to_multiple($tagspec, $filenames);
+} else {
   my $mode;
   my $tagspec_prefix = "";
   my $i = 0;
@@ -339,11 +358,6 @@ if (@ARGV and $ARGV[0] eq "--stdin") {
     }
   }
   die if !close($f);
-} else {
-  my $tagspec = shift(@ARGV);
-  my $tag_mode;
-  ($tag_mode, $tagspecmsg) = apply_tagspec($tagspec, "++", \@ARGV, 0);
-  $action = $tag_mode eq "overwrite" ? "overwritten" : $tag_mode eq "merge" ? "merged" : "changed";
 }
 print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 print "kept tags of $KC file@{[$KC==1?q():q(s)]}\n" if $KC;
