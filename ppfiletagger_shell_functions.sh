@@ -7,9 +7,7 @@
 #** @example _mmfs_tag 'tag1 -tag2 ...' file1 file2 ...    # keep tag3
 function _mmfs_tag() {
 	# Midnight Commander menu action implementation for movemetafs (mmfs).
-	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
-	# Imp: better mc menus
-	# Imp: make this a default option
+	# It works for weird filenames (containing e.g. " " or "\n"), too.
         # SUXX: prompt questions may not contain macros
         # SUXX: no way to signal an error
 	perl -w -- - _mmfs_tag "$@" 3>&0 <<'END'
@@ -140,7 +138,6 @@ sub apply_tagspec($$$$) {
   %new_vtags = map { m@\Av:(.*)@s ? ($1 => 1) : () } @ptags if $do_merge;
   my %new_pmvtags;
   %new_pmvtags = map { m@\Av:(.*)@s ? ($1 => 1) : () } (@ptags, @mtags) if $do_merge;
-  # vvv Dat: menu item is not run on a very empty string
   my $is_nop = (!@ptags and !@mtags and !$do_overwrite);
   if ($is_nop and !$is_verbose) {
     print STDERR "warning: no tags specified ($tagspecmsg)\n";
@@ -160,7 +157,7 @@ sub apply_tagspec($$$$) {
       print "    error: not a file\n"; $EC++; next FN0
     }
 
-    my $key = $key0; # Dat: must be in $var
+    my $key = $key0;
     my $got;
     my %old_tags_hash;
     my @old_tags;
@@ -171,6 +168,7 @@ sub apply_tagspec($$$$) {
     # $ptags_ref and $mtags_ref.
     {
       my $oldtags="\0"x65535;
+      # $key must be a variable, it cannot be a read-only literal.
       $got = syscall($SYS_getxattr, $fn0, $key, $oldtags,
         length($oldtags), 0);
       if ((!defined $got or $got<0) and !$!{ENODATA}) {
@@ -371,7 +369,6 @@ END
 }
 
 #** Makes both files have the union of the tags.
-#** Imp: also unify the descriptions.
 #** SUXX: needed 2 runs: modified 32, then 4, then 0 files (maybe because of
 #**   equivalence classes)
 #** @example _mmfs_unify_tags file1 file2
@@ -412,7 +409,7 @@ print "unifying tags\n";
 sub get_tags($) {
   my $fn0 = $_[0];
   #print "  $fn0\n";
-  my $key="user.mmfs.tags"; # Dat: must be in $var
+  my $key="user.mmfs.tags";
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
     length($tags), 0);
@@ -427,7 +424,7 @@ sub get_tags($) {
 
 sub set_tags($$;$) {
   my($fn0,$tags1,$do_count)=@_;
-  my $key="user.mmfs.tags"; # Dat: must be in $var
+  my $key="user.mmfs.tags";
   my $got = syscall($SYS_setxattr, $fn0, $key, $tags1,
     length($tags1), 0);
   if (!defined $got or $got<0) {
@@ -449,7 +446,7 @@ sub add_tags($$;$) {
   die "error: bad add-tags syntax: $tags\n" if $tags =~ /[+-]/;
   return 0 if $tags !~ /\S/ and !%rmtags;
   #print "  $fn0\n";
-  my $key="user.mmfs.tags"; # Dat: must be in $var
+  my $key="user.mmfs.tags";
 
   my $tags0="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn0, $key, $tags0,
@@ -550,9 +547,7 @@ exit 1 if $EC;
 #** @example _mmfs_show file1 file2 ...
 function _mmfs_show() {
 	# Midnight Commander menu action implementation for movemetafs (mmfs).
-	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
-	# Imp: better mc menus
-	# Imp: make this a default option
+	# It works for weird filenames (containing e.g. " " or "\n"), too
         # SUXX: prompt questions may not contain macros
         # SUXX: no way to signal an error
 	perl -w -- - "$@" <<'END'
@@ -595,7 +590,7 @@ sub process_file($) {
   } else {
     print "  $fn0\n";
   }
-  my $key="user.mmfs.tags"; # Dat: must be in $var
+  my $key="user.mmfs.tags";
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
     length($tags), 0);
@@ -641,9 +636,7 @@ END
 #** scripting.
 #** @example _mmfs_get_tags file1
 function _mmfs_get_tags() {
-	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
-	# Imp: better mc menus
-	# Imp: make this a default option
+	# It works for weird filenames (containing e.g. " " or "\n"), too.
         # SUXX: prompt questions may not contain macros
         # SUXX: no way to signal an error
 	perl -w -- - "$@" <<'END'
@@ -670,7 +663,7 @@ sub get_xattr_syscalls() {
 my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
 die "error: not a single filename specified\n" if @ARGV != 1;
 for my $fn0 (@ARGV) {
-  my $key="user.mmfs.tags"; # Dat: must be in $var
+  my $key="user.mmfs.tags";
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
     length($tags), 0);
@@ -755,7 +748,7 @@ my $fn0;
 while (defined($fn0=<STDIN>)) {
   chomp $fn0;
   #print "  $fn0\n";
-  my $key="user.mmfs.tags"; # Dat: must be in $var
+  my $key="user.mmfs.tags";
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
     length($tags), 0);
@@ -789,9 +782,7 @@ print STDERR "warning: had error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 #** @example _mmfs_dump [--printfn=...] file1 file2 ...
 #** @example _copyattr() { _mmfs_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne 'print if s@^rm -f @_copyattr @ and s@ #, keep @ @' >_d.sh; source _d.sh | sh
 function _mmfs_dump() {
-	# Dat: works for weird filenames (containing e.g. " " or "\n"), too
-	# Imp: better mc menus
-	# Imp: make this a default option
+	# It works for weird filenames (containing e.g. " " or "\n"), too.
         # SUXX: prompt questions may not contain macros
         # SUXX: no way to signal an error
 	perl -w -- - _mmfs_dump "$@" 3>&0 <<'END'
@@ -917,7 +908,7 @@ sub dumpf($) {
   if ($fn0 =~ y@\n@@) {
     print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; $EC++; return
   }
-  my $key="user.mmfs.tags"; # Dat: must be in $var
+  my $key="user.mmfs.tags";
   my $tags="\0"x65535;
   my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
     length($tags), 0);
