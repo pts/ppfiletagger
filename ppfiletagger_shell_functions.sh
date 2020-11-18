@@ -52,15 +52,15 @@ sub read_tags_file($) {
     next if $line !~ /^([^\s#][^:\s]*)([\n:]*)/;
     my $tag = $1;
     if (!length($2)) {
-      print "\007syntax error in $tags_fn:$.: missing colon or newline\n"; exit 4;
+      print "syntax error in $tags_fn:$.: missing colon or newline\n"; exit 4;
     }
     if ($tag !~ /\A(?:$tagchar_re)+\Z(?!\n)/) {
       # TODO(pts): Support -* here.
-      print "\007syntax error in $tags_fn:$lineno: bad tag syntax: $tag\n";
+      print "syntax error in $tags_fn:$lineno: bad tag syntax: $tag\n";
       exit 5;
     }
     if (exists $tags->{$tag}) {
-      print "\007syntax error in $tags_fn:$lineno: duplicate tag: $tag\n";
+      print "syntax error in $tags_fn:$lineno: duplicate tag: $tag\n";
       exit 6;
     }
     $tags->{$tag} = 1;
@@ -101,11 +101,11 @@ sub apply_tagspec($$$$) {
   for my $pmtag (@tags) {
     if ($pmtag !~ /\A$pmtag_re\Z(?!\n)/) {
       # TODO(pts): Report this later.
-      print "\007bad tag item syntax ($pmtag), skipping files\n"; exit 3;
+      print "bad tag item syntax ($pmtag), skipping files\n"; exit 3;
     }
     my $tag = $2;
     if ($do_overwrite and $1 eq "-") {
-      print "\007unexpected sign ($pmtag), skipping files\n"; exit 9;
+      print "unexpected sign ($pmtag), skipping files\n"; exit 9;
     }
     # Use triple negation to remove unknown tags or to remove a tag even if
     # it is specified as a positive tag. (In the latter case, remove takes
@@ -123,14 +123,14 @@ sub apply_tagspec($$$$) {
   }
   if (@unknown_tags) {
     @unknown_tags = sort @unknown_tags;
-    print "\007unknown tags (@unknown_tags), skipping files\n"; exit 7;
+    print "unknown tags (@unknown_tags), skipping files\n"; exit 7;
   }
   { @ptags = grep { !exists($fmtags_hash{$_}) } @ptags if %fmtags_hash;
     my %ptags_hash = map { $_ => 1 } @ptags;
     my @intersection_tags = grep { exists($ptags_hash{$_}) } @mtags;
     if (@intersection_tags) {
       @intersection_tags = sort @intersection_tags;
-      print "\007plus and minus tags (@intersection_tags), skipping files\n";
+      print "plus and minus tags (@intersection_tags), skipping files\n";
       exit 8;
     }
   }
@@ -255,7 +255,7 @@ sub apply_tagspec($$$$) {
         syscall($SYS_setxattr, $fn0, $key, $set_tags, length($set_tags), 0);
     if (!defined $got or $got<0) {
       if ($!{EADDRNOTAVAIL} or "$!" eq "Cannot assign requested address") {  # This does not happen with ppfiletagger.
-        print "\007bad tags ($tagspecmsg), skipping other files\n"; exit
+        print "bad tags ($tagspecmsg), skipping other files\n"; exit 10
       } else { print "    error: $!\n"; $EC++ }
     } else {
       print "    applied tagspec: $tagspecmsg\n" if $is_verbose;
@@ -361,7 +361,7 @@ if (@ARGV == 2 and $ARGV[0] eq "--stdin" and $ARGV[1] ne "-" and substr($ARGV[1]
   }
   die if !close($f);
 }
-print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
+print "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 print "kept tags of $KC file@{[$KC==1?q():q(s)]}\n" if $KC;
 print "$action tags of $C file@{[$C==1?q():q(s)]}: $tagspecmsg\n";
 exit 1 if $EC;
@@ -429,7 +429,7 @@ sub set_tags($$;$) {
     length($tags1), 0);
   if (!defined $got or $got<0) {
     if ("$!" eq "Cannot assign requested address") {
-      print "\007bad tags ($tags1)\n"; $EC++; return 1
+      print "bad tags ($tags1)\n"; $EC++; return 1
     } else {
       print "  set-error: $fn0: $!\n"; $EC++; return 1
     }
@@ -514,7 +514,7 @@ sub unify_tags($$) {
     my @common_tags = grep { my $tag = $_; grep { $tag eq $_ } @tags1l } @tags0l;
     my @tags0ol = grep { my $tag = $_; !grep { $tag eq $_ } @common_tags } @tags0l;
     my @tags1ol = grep { my $tag = $_; !grep { $tag eq $_ } @common_tags } @tags1l;
-    print "\007  failed to unify: common:(@common_tags), ($fn0):(@tags0ol), ($fn1):(@tags1ol)\n";
+    print "  failed to unify: common:(@common_tags), ($fn0):(@tags0ol), ($fn1):(@tags1ol)\n";
     $EC++;
     return -3;
   }
@@ -538,7 +538,7 @@ if (@ARGV==2) {
   }
 }
 
-print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
+print "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 print "modified tags of $C file@{[$C==1?q():q(s)]}\n";
 exit 1 if $EC;
 ' -- "$@"
@@ -627,8 +627,9 @@ if ($do_readdir) {
 } else {
   for my $fn0 (@ARGV) { process_file($fn0) }
 }
-print "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
-print "shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n"
+print "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
+print "shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
+exit 1 if $EC;
 END
 }
 
@@ -961,7 +962,7 @@ if ($is_stdin) {
 # because some tools do not support extra lines, e.g. `setfattr --restore
 # <tagfile>`, which restores based on `_mmfs_dump --forgat=getfattr ... >
 # <tagfile>` does not support comments starting with `# `.
-print STDERR "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
+print STDERR "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 print STDERR "info: shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
 exit 1 if $EC;
 END
@@ -996,15 +997,15 @@ for my $line (<$F>) {
   next if $line !~ /^([^\s#][^:\s]*)([\n:]*)/;
   my $tag = $1;
   if (!length($2)) {
-    print "\007syntax error in $tags_fn:$.: missing colon or newline\n"; exit 4;
+    print "syntax error in $tags_fn:$.: missing colon or newline\n"; exit 4;
   }
   if ($tag !~ /\A(?:$tagchar_re)+\Z(?!\n)/) {
     # TODO(pts): Support -* here.
-    print "\007syntax error in $tags_fn:$lineno: bad tag syntax: $tag\n";
+    print "syntax error in $tags_fn:$lineno: bad tag syntax: $tag\n";
     exit 5;
   }
   if (exists $known_tags{$tag}) {
-    print "\007syntax error in $tags_fn:$lineno: duplicate tag: $tag\n";
+    print "syntax error in $tags_fn:$lineno: duplicate tag: $tag\n";
     exit 6;
   }
   $known_tags{$tag} = 1;

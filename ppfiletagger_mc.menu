@@ -1,16 +1,18 @@
 t	Tag files
 	exec bash 3>&0 <<'END'
 	. $HOME/zsh/ppfiletagger_shell_functions.sh
-	cd %d
-	_mmfs_tag %{What tags to add or -remove} %s
+	cd %d || exit 1
+	_mmfs_tag %{What tags to add or -remove} %s ||
+	    perl -e 'print"\7see error $ARGV[0] above\n"; exit$ARGV[0]' $?
 	echo -n "Press <Enter> to return to mc."; read <&3
 	END
 
-s	Show tags
+s	Show tags on files
 	exec bash 3>&0 <<'END'
 	. $HOME/zsh/ppfiletagger_shell_functions.sh
-	cd %d
-	_mmfs_show %s
+	cd %d || exit 1
+	_mmfs_show %s ||
+	    perl -e 'print"\7see error $ARGV[0] above\n"; exit$ARGV[0]' $?
 	echo -n "Press <Enter> to return to mc."; read <&3
 	END
 
