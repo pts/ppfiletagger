@@ -1026,3 +1026,25 @@ print map { "$sign$_\n" } @found_tags;
 exit(@found_tags > 1 ? 2 : @found_tags ? 1 : 0);
 END
 }
+
+function _mmfs() {
+  if test $# = 0 || test "$1" = --help; then
+    echo "Usage: _mmfs <command> [<arg> ...]" >&2
+    return 1
+  else
+    local MCMENU=
+    test "$1" = --mcmenu && MCMENU=1 && shift
+    if type _mmfs_"$1" >/dev/null 2>&1; then
+      local F="$1"
+      shift
+      _mmfs_"$F" "$@"
+      F="$?"
+      test "$MCMENU" && test "$F" != 0 && printf '\007see error %d above\n' "$F" >&2
+      test "$MCMENU" && echo -n "Press <Enter> to return to mc." && read
+      return "$F"
+    else
+      echo "fatal: no _mmfs <command>: $1" >&2
+      return 1
+    fi
+  fi
+}
