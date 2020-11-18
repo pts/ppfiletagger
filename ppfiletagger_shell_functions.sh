@@ -113,7 +113,7 @@ sub apply_tagspec($$$$) {
     # it is specified as a positive tag. (In the latter case, remove takes
     # precedence, no matter the order in $tagspec.)
     if ($1 eq "---") {
-      push @mtags, $tag;  # Force remove, don't check %known_tags.
+      push @mtags, $tag;  # Force remove, do not check %known_tags.
       $fmtags_hash{$tag} = 1;
     } elsif (!exists $known_tags->{$tag}) {
       push @unknown_tags, $tag
@@ -244,7 +244,7 @@ sub apply_tagspec($$$$) {
       $got=syscall($SYS_setxattr, $fn0, $key, $empty, 0, 0);
       if (!defined $got or $got<0) {
         print "    error: $!\n"; $EC++;
-        # FYI: We get EOPNOTSUPP (Operation not supported) if $key doesn't
+        # FYI: We get EOPNOTSUPP (Operation not supported) if $key does not
         # start with "user." (without the quotes).
         # Try to restore the original value;
         syscall($SYS_setxattr, $fn0, $key, $old_tags_str,
@@ -256,7 +256,7 @@ sub apply_tagspec($$$$) {
         syscall($SYS_removexattr, $fn0, $key) :
         syscall($SYS_setxattr, $fn0, $key, $set_tags, length($set_tags), 0);
     if (!defined $got or $got<0) {
-      if ($!{EADDRNOTAVAIL} or "$!" eq "Cannot assign requested address") {  # This doesn't happen with ppfiletagger.
+      if ($!{EADDRNOTAVAIL} or "$!" eq "Cannot assign requested address") {  # This does not happen with ppfiletagger.
         print "\007bad tags ($tagspecmsg), skipping other files\n"; exit
       } else { print "    error: $!\n"; $EC++ }
     } else {
@@ -279,12 +279,12 @@ Usage: $0 \x27tagspec\x27 filename1 ...
     or ls | $0 --stdin <tagspec>
     or $0 --stdin [<flag> ...] < <tagfile>
 <tagfile> contains:
-* Empty lines and comments starting with `#' + whitespace.
+* Empty lines and comments starting with # + whitespace.
 * Lines of the colon form: <tagspec> :: <filename>
-* Lines of the setfattr form: setfattr -n user.mmfs.tags -v '<tags>' '<filename>'
-* Lines of the setfattr form: setfattr -x user.mmfs.tags '<filename>'
+* Lines of the setfattr form: setfattr -n user.mmfs.tags -v \x27<tags>\x27 \x27<filename>\x27
+* Lines of the setfattr form: setfattr -x user.mmfs.tags \x27<filename>\x27
 * Lines of the mediafileinfo form: format=... ... tags=<tags> ... f=<filename>
-* Output of: getfattr -hR -e text -n user.mmfs.tags --absolute-names '<path>'
+* Output of: getfattr -hR -e text -n user.mmfs.tags --absolute-names <path>
 Valid modes for --stdin:
 * --mode=change is like --prefix=++
 * --mode=overwrite == --mode=set == --set is like --prefix=.
@@ -611,8 +611,8 @@ sub process_file($) {
     print "    @v_tags\n" if @v_tags;
   }
 }
-if (@ARGV and $ARGV[0] eq '--abspath') { $do_show_abs_path = 1; shift @ARGV }
-if (@ARGV and $ARGV[0] eq '--readdir') { $do_readdir = 1; shift @ARGV }
+if (@ARGV and $ARGV[0] eq "--abspath") { $do_show_abs_path = 1; shift @ARGV }
+if (@ARGV and $ARGV[0] eq "--readdir") { $do_readdir = 1; shift @ARGV }
 if ($do_readdir) {
   for my $arg (@ARGV) {
     if (-d $arg) {
@@ -819,18 +819,18 @@ sub get_xattr_syscalls() {
 my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
 
 sub fnq($) {
-  #return $_[0] if substr($_[0],0,1)ne'-'
+  #return $_[0] if substr($_[0],0,1)ne"-";
   return $_[0] if $_[0]!~m@[^-_/.0-9a-zA-Z]@;
   my $S=$_[0];
-  $S=~s@'@'\\''@g;
-  "'$S'"
+  $S=~s@\x27@\x27\\\x27\x27@g;
+  "\x27$S\x27"
 }
 
 sub gfaq($) {
   my $S = $_[0];
   $S =~ s@(["\\])@\\$1@g;
   $S =~ s@([\r\n])@ sprintf("\\%03o", ord($1)) @ge;
-  # No need to escape [\x80-\xff] , `getfattr -e text' doesn't do it either.
+  # No need to escape [\x80-\xff] , `getfattr -e text` does not do it either.
   qq("$S")
 }
 
@@ -965,10 +965,10 @@ if ($is_stdin) {
   }
 }
 
-# We print these messages to STDERR (rather than STDOUT starting with `# '),
-# because some tools don't support extra lines, e.g. `setfattr --restore
-# <tagfile>', which restores based on `_mmfs_dump --forgat=getfattr ... >
-# <tagfile>' doesn't support comments starting with `# '.
+# We print these messages to STDERR (rather than STDOUT starting with `# `),
+# because some tools do not support extra lines, e.g. `setfattr --restore
+# <tagfile>`, which restores based on `_mmfs_dump --forgat=getfattr ... >
+# <tagfile>` does not support comments starting with `# `.
 print STDERR "\007error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 print STDERR "info: shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
 exit 1 if $EC;
@@ -1020,13 +1020,13 @@ for my $line (<$F>) {
 die unless close $F;
 
 my @tags = sort keys %known_tags;
-my $sign = '';
+my $sign = "";
 my $prefix = @ARGV ? $ARGV[0] : "";
 $sign = $1 if $prefix =~ s@^([-+]+)@@;
 my $limit = @ARGV > 1 ? 0 + $ARGV[1] : 10;
 my @found_tags = grep { substr($_, 0, length($prefix)) eq $prefix } @tags;
 if ($limit > 0 and @found_tags > $limit) {
-  splice @found_tags, $limit - 1, @found_tags, '...';
+  splice @found_tags, $limit - 1, @found_tags, "...";
 }
 print map { "$sign$_\n" } @found_tags;
 exit(@found_tags > 1 ? 2 : @found_tags ? 1 : 0);
