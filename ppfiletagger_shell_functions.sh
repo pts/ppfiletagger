@@ -932,6 +932,7 @@ sub dumpr($) {
   if (-d($path)) {
     require File::Find;  # Standard Perl module.
     # Prints a 2-line error message to stderr for bad directories.
+    # TODO(pts): Better print error, propagate it as exit code.
     File::Find::find(
         {
           wanted => sub { dumpf($_) },
