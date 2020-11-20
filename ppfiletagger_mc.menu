@@ -4,13 +4,13 @@
 
 t       Tag files
 	exec bash 3>&0 <<'END'
-	. "$HOME"/zsh/ppfiletagger_shell_functions.sh &&
+	. "$HOME"/zsh/ppfiletagger_shell_functions.sh --load &&
 	cd %d && _mmfs --mcmenu tag %{What tags to add or -remove} %s <&3
 	END
 
 s       Show tags on files
 	exec bash 3>&0 <<'END'
-	. "$HOME"/zsh/ppfiletagger_shell_functions.sh &&
+	. "$HOME"/zsh/ppfiletagger_shell_functions.sh --load &&
 	cd %d && _mmfs --mcmenu show %s <&3
 	END
 
