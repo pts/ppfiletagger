@@ -2,16 +2,16 @@
 unset _mmfs_PERLCODE; _mmfs_PERLCODE='
 #!perl  # http://pts.github.io/Long.Perl.Header/
 $0="_mmfs";eval("\n\n\n\n".<<'__END__');die$@if$@;__END__
+BEGIN { $^W = 1; $| = 1 } use integer; use strict;
+BEGIN { $ENV{LC_MESSAGES} = $ENV{LANGUAGE} = "C" }  # Make $! English.
+my($C, $KC, $EC, $HC) = (0, 0, 0, 0);
+$_ = "\n\n\n\n\n\n\n\n" . <<'END';
+
 #
 # ppfiletagger_shell_functions.sh for bash and zsh
 # by pts@fazekas.hu at Sat Jan 20 22:29:43 CET 2007
 #
-# TODO(pts): Make startup faster, especially --help.
-#
-
-BEGIN { $^W = 1; $| = 1 } use integer; use strict;
-BEGIN { $ENV{LC_MESSAGES} = $ENV{LANGUAGE} = "C" }  # Make $! English.
-my($C, $KC, $EC, $HC) = (0, 0, 0, 0);
+# TODO(pts): Make startup faster.
 
 sub get_archname() {
   # This is still slow: return (eval { require Config; die if !%Config::Config; $Config::Config{archname} } or "");
@@ -866,13 +866,9 @@ sub _mmfs_expand_tag {
 
 # ---
 
-my @cmds; {
-  no strict qw(refs);
-  my $p = __PACKAGE__ . "::";
-  #my $h = \%{__PACKAGE__."::"};  # Does not work, error: not a GLOB reference.
-  @cmds = sort map { (m@^_mmfs_(.*)@s and defined(*{$p . $_}{CODE})) ? ($1) : () } keys %$p;
-}
-@cmds = grep { $_ ne "fixprincipal" } @cmds;  # Hide it.
+END
+my @cmds;
+push @cmds, $1 while m@^sub[ \t]+_mmfs_(\w+)[ \t({]@mg;
 
 sub exit_usage() {
   print STDERR "$0: file tagging and search-by-tag tool\n" .
@@ -899,6 +895,7 @@ if (!@ARGV or $ARGV[0] eq "--help") {
     exit_usage() if !@ARGV;
     if (@ARGV == 1) { $cmd = shift(@ARGV); push @ARGV, "--help" }
   }
+  eval; die $@ if $@;  # Delayed (lazy) parsing of actual Perl code.
   my $func; { no strict qw(vars); $func = \&{__PACKAGE__ . "::_mmfs_$cmd" } }
   if (!defined(&$func)) {
     print STDERR "fatal: no $0 <command>: $cmd\n";
@@ -943,12 +940,13 @@ case "$(exec 2>&1; set -x; : "a b")" in  # Avoid E2BIG with long argv.
   (export _ARGV_PERLCODE; export _mmfs_PERLCODE
    exec perl -e '$0="_mmfs";
    eval$ENV{_ARGV_PERLCODE};die$@if$@;$_=$ENV{_mmfs_PERLCODE};
-   s@^.*?;__END__\n@undef\$_;\n\n\n\n@s;eval;die$@if$@'))
+   s@^.*?;__END__\n@undef\$_;\n\n\n\n@s;
+   s@<<([A-Z]\w*)@<<\x27$1\x27@g;eval;die$@if$@'))
 } ;;
 *) _mmfs() {
   (export _mmfs_PERLCODE; exec perl -e '$0="_mmfs";
-   $_=$ENV{_mmfs_PERLCODE};
-   s@^.*?;__END__\n@undef\$_;\n\n\n\n@s;eval;die$@if$@' -- "$@")
+   $_=$ENV{_mmfs_PERLCODE};s@^.*?;__END__\n@undef\$_;\n\n\n\n@s;
+   s@<<([A-Z]\w*)@<<\x27$1\x27@g;eval;die$@if$@' -- "$@")
 } ;;
 esac
 if test "$1" = --load; then
