@@ -11,7 +11,15 @@ $_ = "\n\n\n\n\n\n\n\n" . <<'END';
 # ppfiletagger_shell_functions.sh for bash and zsh
 # by pts@fazekas.hu at Sat Jan 20 22:29:43 CET 2007
 #
-# TODO(pts): Make startup faster.
+# TODO(pts): Make it work on macOS.
+#
+
+# Simple superset of UTF-8 words.
+my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
+                           [\xE0-\xEF] [\x80-\xBF]{2} |
+                           [\xF0-\xF4] [\x80-\xBF]{3}) /xo;
+
+# --- xattr
 
 sub get_archname() {
   # This is still slow: return (eval { require Config; die if !%Config::Config; $Config::Config{archname} } or "");
@@ -34,10 +42,7 @@ sub get_xattr_syscalls() {
 my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
 my $key0 = "user.mmfs.tags";
 
-# Simple superset of UTF-8 words.
-my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
-                           [\xE0-\xEF] [\x80-\xBF]{2} |
-                           [\xF0-\xF4] [\x80-\xBF]{3}) /xo;
+# --- read_tags_file
 
 #** Reads the tag list file (of lines <tag> or <tag>:<description> or
 #** <space><comment> or #<comment>).
@@ -73,7 +78,7 @@ sub read_tags_file(;$) {
   $tags
 }
 
-# ---
+# --- _mmfs_tag : xattr read_tags_file
 
 my $known_tags = read_tags_file();
 my $pmtag_re = qr/(---|[-+]?)((?:v:)?(?:$tagchar_re)+)/o;
@@ -373,6 +378,8 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
   print "$action tags of $C file@{[$C==1?q():q(s)]}: $tagspecmsg\n";
 }
 
+# --- _mmfs_unify_tags : xattr
+
 #** Makes both files have the union of the tags.
 #** SUXX: needed 2 runs: modified 32, then 4, then 0 files (maybe because of
 #**   equivalence classes)
@@ -523,6 +530,8 @@ Usage: $0 <file1> <file2>
   print "modified tags of $C file@{[$C==1?q():q(s)]}\n";
 }
 
+# --- _mmfs_show : xattr
+
 #** Midnight Commander menu action implementation for movemetafs (mmfs).
 #** It works for weird filenames (containing e.g. " " or "\n"), too
 #** SUXX: prompt questions may not contain macros
@@ -587,6 +596,8 @@ sub _mmfs_show {
   print "shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
 }
 
+# --- _mmfs_get_tags : xattr
+
 #** Like _mmfs_show, but only one file, and without extras. Suitable for
 #** scripting.
 #** It works for weird filenames (containing e.g. " " or "\n"), too.
@@ -610,6 +621,8 @@ sub _mmfs_get_tags {
     }
   }
 }
+
+# --- _mmfs_grep : xattr
 
 #** @example ls | _mmfs_grep "+foo -bar baz"  # anything with foo and baz, but without bar
 #** @example ls | _mmfs_grep "* -2004"        # anything with at least one tag, but without 2004
@@ -682,6 +695,8 @@ sub _mmfs_grep {
   }
   print STDERR "warning: had error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 }
+
+# --- _mmfs_dump : xattr
 
 #** @example _copyattr() { _mmfs_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne "print if s@^rm -f @_copyattr @ and s@ #, keep @ @" >_d.sh; source _d.sh | sh
 sub _mmfs_dump {
@@ -839,11 +854,15 @@ It follows symlinks.
   print STDERR "info: shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
 }
 
+# --- _mmfs_fixprincipal
+
 #** @example _mmfs_fixprincipal file1 file2 ...
 sub _mmfs_fixprincipal# Hide from <command> list.
 {
   die "$0: fatal: not supported with ppfiletagger\n";
 }
+
+# --- _mmfs_expand_tag : read_tags_file
 
 #** Displays all known tags whose prefix is $1, displaying at most $2 tags.
 #** @example _mmfs_expand_tag ta
@@ -864,11 +883,22 @@ sub _mmfs_expand_tag {
   exit(@found_tags > 1 ? 2 : @found_tags ? 1 : 0);
 }
 
-# ---
-
+# --- end
 END
+my %parts;
+my @partps;
+while (m@\n# ---([ \t]*(\w+)(?: :[ \t]*([\w \t]*)|[ \t]*)(?=\n))?@g) {
+  die "$0: assert bad part separator\n" if !defined($1);
+  my $part = $2;
+  push @partps, $part, pos($_) - length($1) - 6;
+  my @deps = split(/\s+/, defined($3) ? $3 : "");
+  die "$0: assert: duplicate part: $part\n" if exists($parts{$part});
+  $parts{$part} = \@deps;
+}
+# This also includes fixprincipal.
+# my @cmds = map { m@^_mmfs_(.*)@ and $1  ? ($1) : () } keys(%parts);
 my @cmds;
-push @cmds, $1 while m@^sub[ \t]+_mmfs_(\w+)[ \t({]@mg;
+while (m@\nsub[ \t]+(_mmfs_(\w+))[ \t({]@g) { push @cmds, $2 if exists($parts{$1}) }
 
 sub exit_usage() {
   print STDERR "$0: file tagging and search-by-tag tool\n" .
@@ -895,10 +925,33 @@ if (!@ARGV or $ARGV[0] eq "--help") {
     exit_usage() if !@ARGV;
     if (@ARGV == 1) { $cmd = shift(@ARGV); push @ARGV, "--help" }
   }
-  eval; die $@ if $@;  # Delayed (lazy) parsing of actual Perl code.
+  {
+    my $cmdp = "_mmfs_$cmd";
+    die "fatal: no $0 <command>: $cmd\n" if !exists($parts{$cmdp});
+    my %done;
+    my @todo = ($cmdp);
+    for my $part (@todo) {  # Figure out which parts are used.
+      if (!exists($done{$part})) {
+        $done{$part} = 1;
+        for my $part2 (@{$parts{$part}}) {
+          die "$0: assert: missing dep: $part2\n" if !exists($parts{$part2});
+          push @todo, $part2;
+        }
+      }
+    }
+    my @src = (substr($_, 0, $partps[1]));
+    for (my $i = 2; $i < @partps; $i += 2) {  # Prepare only used code parts.
+      my ($part, $pos, $endpos) = ($partps[$i - 2], $partps[$i - 1], $partps[$i + 1]);
+      my $partsrc = substr($_, $pos, $endpos - $pos);
+      $partsrc =~ y@\n@@cd if !exists($done{$part});
+      push @src, $partsrc;
+    }
+    $_ = join("", @src);
+  }
+  eval; die $@ if $@;  # Delayed and partial parsing of actual Perl code.
   my $func; { no strict qw(vars); $func = \&{__PACKAGE__ . "::_mmfs_$cmd" } }
   if (!defined(&$func)) {
-    print STDERR "fatal: no $0 <command>: $cmd\n";
+    print STDERR "$0: assert: no command func: $cmd\n";
     exit(1);
   }
   $0 .= " $cmd";
