@@ -950,7 +950,7 @@ case "$(exec 2>&1; set -x; : "a b")" in  # Avoid E2BIG with long argv.
 } ;;
 esac
 if test "$1" = --load; then
-  eval "$(_mmfs --shfn || echo exit 1)"  # Create more shell functions.
+  eval "$(_mmfs --shfn || echo false)"  # Create more shell functions.
 else
   _mmfs "$@"
 fi
