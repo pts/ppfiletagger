@@ -832,6 +832,7 @@ Flags:
 --format=getfattr : Print the same output as: getfattr -e text
 --format=mfi : Print in the mediafileinfo format.
 --format=filename : Print filename only.
+--format=tags : Print tags (including v:...) encountered (deduplicated).
 --stdin : Get filenames from stdin rather than command-line.
 --recursive=yes (default) : Dump directories, recursively.
 --recursive=no : Dump files only.
@@ -855,6 +856,7 @@ It follows symlinks.
     elsif ($arg eq "--format=getfattr") { $format = "getfattr" }
     elsif ($arg eq "--format=mfi" or $arg eq "--format=mediafileinfo" or $arg eq "--format=mscan" or $arg eq "--mfi" or $arg eq "--mscan") { $format = "mfi" }
     elsif ($arg eq "--format=filename") { $format = "filename" }
+    elsif ($arg eq "--format=tags" or $arg eq "--format=tagvs") { $format = "tags" }
     elsif ($arg =~ m@\A--format=@) { die "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg eq "--print-empty=yes") { $do_print_empty = 1 }
     elsif ($arg eq "--print-empty=no") { $do_print_empty = 0 }
@@ -870,6 +872,7 @@ It follows symlinks.
     splice(@ARGV, 0, $i);
   }
 
+  my %tagvs_encountered;
   my $dump_func =
       ($format eq "sh") ? sub {
         my($tags, $filename) = @_;
@@ -879,6 +882,17 @@ It follows symlinks.
       } : ($format eq "colon") ? sub {
         my($tags, $filename) = @_;
         "$tags :: $filename\n"
+      } : ($format eq "tags") ? sub {
+        my($tags, $filename) = @_;
+        my $result = "";
+        while ($tags=~/([^\s,]+)/g) {
+          my $tagv = $1;
+          if (!exists($tagvs_encountered{$tagv})) {
+            $tagvs_encountered{$tagv} = 1;
+            $result .= "$tagv\n";
+          }
+        }
+        $result
       } : ($format eq "filename") ? sub {
         "$_[1]\n"  # $filename.
       } : ($format eq "getfattr") ? sub {
