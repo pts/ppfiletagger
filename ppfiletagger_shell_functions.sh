@@ -694,9 +694,6 @@ sub _mmfs_get_tags {
 sub _mmfs_grep {
   die "Usage: $0 <tagquery>\n" if 1!=@ARGV;
   my @orterms;
-  my %needplus;
-  my %needminus;
-  my %ignore;
   # Query language:
   # * "foo bar | -baz" means ((foo AND bar) OR NOT baz).
   # * Special words: * -* and *-foo
@@ -724,7 +721,6 @@ sub _mmfs_grep {
     push @orterms, [$needplus, $needminus, $ignore];
   }
   die "_mmfs_grep: empty query\n" if !@orterms;
-  my $C=0;  my $EC=0;  my $HC=0;
   my $fn0;
   while (defined($fn0=<STDIN>)) {
     chomp $fn0;
