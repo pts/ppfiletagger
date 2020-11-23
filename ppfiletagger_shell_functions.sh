@@ -56,19 +56,22 @@ sub get_archname() {
 
 sub get_linux_xattr_syscalls() {
   my $archname = get_archname();
+  # https://syscalls.w3challs.com/
   if ($archname =~ m@\A(?:x86_64|amd64)-@) {
-    return (191, 197, 188);
+    return (191, 197, 188, 63);
   } elsif ($archname =~ m@\A(?:i[3-6]86-|arm(?!64))@) {
-    return (229, 235, 226);
+    # i386 also has $SYS_olduname == 109, which does not have the domainname
+    # field. Linux 2.0 already has the newest uname.
+    return (229, 235, 226, 122);
   } elsif ($archname =~ m@\A(?:arm|aarch)64@) {
-    return (8, 14, 5)
-  } elsif ($archname =~ m@\Asparc@) {
-    return (172, 181, 169)
+    return (8, 14, 5, 160)
+  } elsif ($archname =~ m@\Asparc@) {  # Same for sparc and sparc64.
+    return (172, 181, 169, 189)
   }
   # This works on Linux, but `require "syscall.ph" is quite slow.
   # It does not work in FreeBSD, because FreeBSD has extattr_set_file(2) etc.
-  my @result = eval { package syscall; require "syscall.ph"; &syscall::SYS_getxattr, &syscall::SYS_removexattr, &syscall::SYS_setxattr };
-  die "fatal: setxattr or similar syscalls not available\n" if @result != 3;
+  my @result = eval { package syscall; require "syscall.ph"; &syscall::SYS_getxattr, &syscall::SYS_removexattr, &syscall::SYS_setxattr, &syscall::SYS_uname };
+  die "fatal: setxattr or similar syscalls not available\n" if @result != 4;
   @result
 }
 
@@ -78,7 +81,7 @@ my $ENOATTR = exists($!{ENOATTR}) ? "ENOATTR" : "ENODATA";
 sub get_xattr_api() {
   my $xattr_api = {};
   if ($^O eq "linux") {
-    my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_linux_xattr_syscalls();
+    my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr, $SYS_uname) = get_linux_xattr_syscalls();
     $xattr_api->{getxattr} = sub {  # ($$).
       my($filename, $key) = @_;
       my $result = "\0" x 65535;
@@ -102,6 +105,17 @@ sub get_xattr_api() {
       my $got = syscall($SYS_setxattr, $filename, $key, $value, length($value), 0);
       (defined($got) and $got == 0) ? 1 : undef
     };
+    my $utsname = "\0" x 390;
+    my $got = syscall($SYS_uname, $utsname);
+    die "fatal: uname: $!\n" if !defined($got) or $got != 0;
+    # my($sys, $node, $release, $version, $machine, $domain) = unpack("Z65Z65Z65Z65Z65Z65", $utsname);
+    # die "($sys)($node)($release)($version)($machine)($domain)\n";
+    # Typical $release is: 4.9.0-6-amd64.
+    my $release = unpack("x65x65Z65", $utsname);
+    # There is a reiserfs bug on Linux 2.6.31: cannot reliably set the
+    # extended attribute to a shorter value. Workaround: set it to the empty
+    # value (or remove it) first. Workaround is enabled for Linux <3.x.
+    $xattr_api->{need_setxattrw} = 1 if $release !~ m@\A(\d+)[.]@ or $1 < 3;
   } else {
     eval { require File::ExtAttr };  # https://metacpan.org/pod/File::ExtAttr
     die "fatal: please install Perl module File::ExtAttr\n" if $@;
@@ -119,15 +133,10 @@ sub get_xattr_api() {
     $xattr_api->{getxattr} =    sub { File::ExtAttr::getfattr($fix_key->(@_)) } if defined(&File::ExtAttr::getfattr);
     $xattr_api->{removexattr} = sub { File::ExtAttr::delfattr($fix_key->(@_)) } if defined(&File::ExtAttr::delfattr);
     $xattr_api->{setxattr} =    sub { File::ExtAttr::setfattr($fix_key->(@_)) } if defined(&File::ExtAttr::setfattr);
+    $xattr_api->{need_setxattrw} = 1 if $^O eq "linux";
   }
   die "fatal: xattr not available\n" if
       !defined($xattr_api->{getxattr}) or !defined($xattr_api->{removexattr}) or !defined($xattr_api->{setxattr});
-  # There is a reiserfs bug on Linux 2.6.31: cannot reliably set the
-  # extended attribute to a shorter value. Workaround: set it to the empty
-  # value (or remove it) first.
-  #
-  # TODO(pts): Enable the workaround for Linux <3.0 only.
-  $xattr_api->{need_setxattrw} = 1 if $^O eq "linux";
   $xattr_api
 }
 
