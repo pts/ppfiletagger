@@ -948,8 +948,9 @@ sub find_matches($$$$$$) {
   }
   # We print these messages to STDERR (rather than STDOUT starting with `# `),
   # because some tools do not support extra lines, e.g. `setfattr --restore
-  # <tagfile>`, which restores based on `_mmfs_dump --forgat=getfattr ... >
-  # <tagfile>` does not support comments starting with `# `.
+  # <tagfile>`, which restores based on
+  # `_mmfs_dump --format=getfattr ... > <tagfile>`
+  # does not support comments starting with `# `.
   print STDERR "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
   print STDERR "info: $action tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
 }
