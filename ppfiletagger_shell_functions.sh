@@ -53,7 +53,63 @@ sub get_xattr_syscalls() {
   @result
 }
 my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
+# FreeBSD and macOS have ENOATTR, Linux has ENODATA.
+my $ENOATTR = exists($!{ENOATTR}) ? "ENOATTR" : "ENODATA";
 my $key0 = "user.mmfs.tags";
+
+#** On error, returns undef and sets $!, e.g. $!{$ENOATTR} if the file does
+#** not have $key as extended attribute.
+#**
+#** It fails with $!{EOPNOTSUPP} (Operation not supported) if $key does not
+#** start with "user." (without the quotes) on Linux.
+sub getxattr($$) {
+  my($filename, $key) = @_;
+  my $result = "\0" x 65535;
+  # For syscall, $key must be a variable, it cannot be a read-only literal.
+  my $got = syscall($SYS_getxattr, $filename, $key, $result, length($result), 0);
+  if (defined($got) and $got >= 0) {
+    substr($result, $got) = "";
+    #$result =~ s@\0.*@@s;  # Not needed anymore.
+    $result
+  } else {
+    undef
+  }
+}
+
+sub removexattr($$) {
+  my($filename, $key) = @_;
+  my $got = syscall($SYS_removexattr, $filename, $key);
+  (defined($got) and $got == 0) ? 1 : undef
+}
+
+sub setxattr($$$) {
+  my($filename, $key, $value) = @_;
+  my $got = syscall($SYS_setxattr, $filename, $key, $value, length($value), 0);
+  (defined($got) and $got == 0) ? 1 : undef
+}
+
+sub setxattr_safe($$$$$) {
+  my($filename, $key, $old_value, $value, $do_remove_if_empty) = @_;
+  die "$0: assert: undefined old value for xattr key: $key\n" if !defined($old_value);
+  die "$0: assert: undefined value for xattr key: $key\n" if !defined($value);
+  return removexattr($filename, $key) if $do_remove_if_empty and !length($value);
+  if (length($value) > 0 and !defined($old_value)) {
+    return undef if !defined($old_value = getxattr($filename, $key));
+  }
+  if (length($value) > 0 and length($value) < length($old_value)) {
+    # There is a reiserfs bug on Linux 2.6.31: cannot reliably set the
+    # extended attribute to a shorter value. Workaround: set it to the empty
+    # value (or remove it) first.
+    #
+    # TODO(pts): Enable the workaround for Linux <3.0 only.
+    if (!setxattr($filename, $key, "")) {
+      setxattr($filename, $key, $old_value);  # Try to restore the old value.
+      return undef;
+    }
+  }
+  return 1 if defined($old_value) and $old_value eq $value;
+  setxattr($filename, $key, $value)
+}
 
 # --- read_tags_file
 
@@ -179,7 +235,6 @@ sub apply_tagspec($$$$) {
       print "    error: not a file\n"; $EC++; next FN0
     }
 
-    my $key = $key0;
     my $got;
     my %old_tags_hash;
     my @old_tags;
@@ -189,21 +244,17 @@ sub apply_tagspec($$$$) {
     # Populates $old_tags_str, %old_tags_hash, @old_tags, maybe modifies
     # $ptags_ref and $mtags_ref.
     {
-      my $oldtags="\0"x65535;
-      # $key must be a variable, it cannot be a read-only literal.
-      $got = syscall($SYS_getxattr, $fn0, $key, $oldtags,
-        length($oldtags), 0);
-      if ((!defined $got or $got<0) and !$!{ENODATA}) {
+      $old_tags_str = getxattr($fn0, $key0);
+      if (!defined($old_tags_str) and !$!{$ENOATTR}) {
         my $is_eio = $!{EIO};
         print "    error getting: $!\n"; $EC++;
         next FN0 if !($is_eio and $do_overwrite);
-        $oldtags = $old_tags_str = "?";
+        $old_tags_str = "?";
         $old_tags_hash{"?"} = 1;
         push @old_tags, "?";
       } else {
-        $oldtags =~ s@\0.*@@s;
-        $old_tags_str = $oldtags;
-        for my $tag (split(/\s+/, $oldtags)) {
+        $old_tags_str = "" if !defined($old_tags_str);
+        for my $tag (split(/\s+/, $old_tags_str)) {
           if (!exists($old_tags_hash{$tag})) {
             $old_tags_hash{$tag} = @old_tags;
             push @old_tags, $tag;
@@ -251,34 +302,8 @@ sub apply_tagspec($$$$) {
       print "    unchanged by tagspec: $tagspecmsg\n" if $is_verbose;
       $KC++; next FN0
     }
-    my $set_tags = join(" ", @new_tags);
-    $key=$key0;
-    # Setting $set_tags to the empty string removes $key on reiserfs3. Good.
-    #die "SET ($old_tags_str) ($set_tags)\n";
-    #print "($set_tags)\n($old_tags_str)\n";
-    if (length($set_tags) > 0 and length($set_tags) < length($old_tags_str)) {
-      # There is a reiserfs bug on Linux 2.6.31: cannot reliably set the
-      # extended attribute to a shorter value. Workaround: set it to the empty
-      # value (or remove it) first.
-      my $empty = "";  # Perl needs this so $empty is writable.
-      $got=syscall($SYS_setxattr, $fn0, $key, $empty, 0, 0);
-      if (!defined $got or $got<0) {
-        print "    error: $!\n"; $EC++;
-        # FYI: We get EOPNOTSUPP (Operation not supported) if $key does not
-        # start with "user." (without the quotes).
-        # Try to restore the original value;
-        syscall($SYS_setxattr, $fn0, $key, $old_tags_str,
-                length($old_tags_str), 0);
-        next FN0;
-      }
-    }
-    $got = length($set_tags) == 0 ?
-        syscall($SYS_removexattr, $fn0, $key) :
-        syscall($SYS_setxattr, $fn0, $key, $set_tags, length($set_tags), 0);
-    if (!defined $got or $got<0) {
-      if ($!{EADDRNOTAVAIL} or "$!" eq "Cannot assign requested address") {  # This does not happen with ppfiletagger.
-        print "bad tags ($tagspecmsg), skipping other files\n"; exit 10
-      } else { print "    error: $!\n"; $EC++ }
+    if (!setxattr_safe($fn0, $key0, $old_tags_str, join(" ", @new_tags), 1)) {
+      print "    error: $!\n"; $EC++
     } else {
       print "    applied tagspec: $tagspecmsg\n" if $is_verbose;
       $C++
@@ -410,33 +435,12 @@ Usage: $0 <file1> <file2>
   sub get_tags($) {
     my $fn0 = $_[0];
     #print "  $fn0\n";
-    my $key=$key0;
-    my $tags="\0"x65535;
-    my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
-      length($tags), 0);
-    if ((!defined $got or $got<0) and !$!{ENODATA}) {
+    my $tags = getxattr($fn0, $key0);
+    if (!defined($tags) and !$!{$ENOATTR}) {
       print "  get-error: $fn0: $!\n"; $EC++;
       return undef;
     } else {
-      $tags=~s@\0.*@@s;
-      return $tags;
-    }
-  }
-
-  sub set_tags($$;$) {
-    my($fn0,$tags1,$do_count)=@_;
-    my $key=$key0;
-    my $got = syscall($SYS_setxattr, $fn0, $key, $tags1,
-      length($tags1), 0);
-    if (!defined $got or $got<0) {
-      if ("$!" eq "Cannot assign requested address") {
-        print "bad tags ($tags1)\n"; $EC++; return 1
-      } else {
-        print "  set-error: $fn0: $!\n"; $EC++; return 1
-      }
-    } else {
-      $C++ if !defined($do_count) or $do_count;
-      return 0
+      return defined($tags) ? $tags : "";
     }
   }
 
@@ -445,17 +449,13 @@ Usage: $0 <file1> <file2>
     my %rmtags;
     %rmtags=map { $_ => 1 } split(/\s+/, $rmtags) if defined $rmtags;
     die "error: bad add-tags syntax: $tags\n" if $tags =~ /[+-]/;
-    return 0 if $tags !~ /\S/ and !%rmtags;
+    return if $tags !~ /\S/ and !%rmtags;
     #print "  $fn0\n";
-    my $key=$key0;
-
-    my $tags0="\0"x65535;
-    my $got=syscall($SYS_getxattr, $fn0, $key, $tags0,
-      length($tags0), 0);
-    if ((!defined $got or $got<0) and !$!{ENODATA}) {
-      print "  add-get-error: $fn0: $!\n"; $EC++; return 1
+    my $tags0 = getxattr($fn0, $key0);
+    if (!defined($tags0) and !$!{$ENOATTR}) {
+      print "  add-get-error: $fn0: $!\n"; $EC++; return
     }
-    $tags0=~s@\0.*@@s;
+    $tags0 = "" if !defined($tags0);
     my %tags0_hash = map { $_ => 1 } split(/\s+/, $tags0);
     my $tags1 = $tags0;
     for my $tag (split(/\s+/, $tags)) {
@@ -471,7 +471,12 @@ Usage: $0 <file1> <file2>
     }
     $tags1 =~ s@\A\s+@@;
     die if !%rmtags and length($tags1) < length($tags);  # fail on reiserfs length problem
-    return ($tags1 eq $tags0) ? 0 : set_tags($fn0, $tags1);
+    if ($tags0 eq $tags1) {
+    } elsif (setxattr_safe($fn0, $key0, $tags0, $tags1, 1)) {
+      $C++;
+    } else {
+      print "  set-error: $fn0: $!\n"; $EC++;
+    }
   }
 
   sub unify_tags($$) {
@@ -506,9 +511,9 @@ Usage: $0 <file1> <file2>
     my @tags1l=sort split /\s+/, $tags1b;  # \S+
     my $tags0c=join " ", @tags0l;
     my $tags1c=join " ", @tags1l;
-    if ($tags0c eq $tags1c) {
-      if ($tags0b ne $tags1b) {
-        set_tags($fn0, $tags1b, 0);  # Copy (order of) tags from $fn1 to $fn0.
+    if ($tags0c eq $tags1c) {  # Copy (order of) tags from $fn1 to $fn0. No $C++.
+      if (!setxattr_safe($fn0, $key0, $tags0b, $tags1b, 1)) {
+        print "  order-set-error: $fn0: $!\n"; $EC++;
       }
       print "  unified ($tags0c): ($fn0) ($fn1)\n";
     } else {
@@ -568,14 +573,11 @@ sub _mmfs_show {
     } else {
       print "  $fn0\n";
     }
-    my $key=$key0;
-    my $tags="\0"x65535;
-    my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
-      length($tags), 0);
-    if ((!defined $got or $got<0) and !$!{ENODATA}) {
+    my $tags = getxattr($fn0, $key0);
+    if (!defined($tags) and !$!{$ENOATTR}) {
       print "    error: $!\n"; $EC++
     } else {
-      $tags=~s@\0.*@@s;
+      $tags = "" if !defined($tags);
       my @tags = split/\s+/, $tags;
       my @n_tags = grep { !/^v:/ } @tags;
       my @v_tags = grep { /^v:/  } @tags;
@@ -614,24 +616,19 @@ sub _mmfs_show {
 #** Like _mmfs_show, but only one file, and without extras. Suitable for
 #** scripting.
 #** It works for weird filenames (containing e.g. " " or "\n"), too.
-#** SUXX: no way to signal an error
 #** @example _mmfs_get_tags file1
 sub _mmfs_get_tags {
   die "error: not a single filename specified\n" if @ARGV != 1;
-  for my $fn0 (@ARGV) {
-    my $key=$key0;
-    my $tags="\0"x65535;
-    my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
-      length($tags), 0);
-    if ((!defined $got or $got<0) and !$!{ENODATA}) {
-      print STDERR "error: $fn0: $!\n";
-      exit(2);
-    } else {
-      $tags=~s@\0.*@@s;
-      exit(1) if 0 == length($tags);
-      print "$tags\n";
-      exit;
-    }
+  my $fn0 = $ARGV[0];
+  my $tags = getxattr($fn0, $key0);
+  if (defined($tags)) {
+    exit(1) if 0 == length($tags);
+    print "$tags\n";
+  } elsif ($!{$ENOATTR}) {
+    exit(1);
+  } else {
+    print STDERR "error: $fn0: $!\n";
+    exit(2);
   }
 }
 
@@ -679,14 +676,11 @@ sub _mmfs_grep {
   while (defined($fn0=<STDIN>)) {
     chomp $fn0;
     #print "  $fn0\n";
-    my $key=$key0;
-    my $tags="\0"x65535;
-    my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
-      length($tags), 0);
-    if ((!defined $got or $got<0) and !$!{ENODATA}) {
+    my $tags = getxattr($fn0, $key0);
+    if (!defined($tags) and !$!{$ENOATTR}) {
       print STDERR "error: $fn0: $!\n"; $EC++
     } else {
-      $tags=~s@\0.*@@s;
+      $tags = "" if !defined($tags);
       my $ok_p = 0;
       for my $term (@orterms) {
         my ($needplus, $needminus, $ignore) = @$term;
@@ -801,7 +795,7 @@ It follows symlinks.
         @st ? "format=?-no-try mtime=$st[9] size=$st[7] tags=$tagsc f=$filename\n"
             : "format=?-no-try tags=$tagsc f=$filename\n"
       } : undef;
-  die "assert: unknown format: $format\n" if !defined($dump_func);
+  die "$0: assert: unknown format: $format\n" if !defined($dump_func);
 
   #print "to these files:\n";
   my $dumpf = sub {  # ($)
@@ -811,14 +805,11 @@ It follows symlinks.
     if ($fn0 =~ y@\n@@) {
       print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; $EC++; return
     }
-    my $key=$key0;
-    my $tags="\0"x65535;
-    my $got=syscall($SYS_getxattr, $fn0, $key, $tags,
-      length($tags), 0);
-    if ((!defined $got or $got<0) and !$!{ENODATA}) {
+    my $tags = getxattr($fn0, $key0);
+    if (!defined($tags) and !$!{$ENOATTR}) {
       print STDERR "error: $fn0: $!\n"; $EC++; return
     }
-    $tags =~ s@\0.*@@s;
+    $tags = "" if !defined($tags);
     $tags =~ s@[\s,]+@ @g;  # E.g. get rid of newlines for --format=colon.
     $tags =~ s@\A +@@; $tags =~ s@ +\Z(?!\n)@@;
     ++$C;
