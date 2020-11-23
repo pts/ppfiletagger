@@ -477,7 +477,6 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
 #** @example _mmfs_unify_tags file1 file2
 #** @example echo "... 'file1' ... 'file2' ..." ... | _mmfs_unify_tags --stdin
 sub _mmfs_unify_tags {
-  $0="_mmfs_unify_tags";
   die "$0: makes both files have to union of tags
 Usage: $0 <file1> <file2>
     or echo \"... \x27file1\x27 ... \x27file2\x27 ...\" ... | $0 --stdin
