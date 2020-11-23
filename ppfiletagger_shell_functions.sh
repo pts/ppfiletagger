@@ -880,6 +880,7 @@ my $format_usage =
 
 # --- find_matches
 
+#** @param $_[1] $match_func, takes ->($fn0, $tags), returns bool.
 sub find_matches($$$$$$) {
   my($format_func, $match_func, $action, $printfn, $is_recursive, $is_stdin) = @_;
   $is_recursive = $is_stdin ? 0 : 1 if !defined($is_recursive);
@@ -949,8 +950,11 @@ sub _mmfs_dump {
 Usage: $0 [<flag> ...] <filename> [...] > <tagfile>
 Flags:
 --printfn=<filename> : In the output, print the specified filename instead.
---print-empty=yes (default) : Print files without tags.
---print-empty=no : Hide files without tags.
+--tagquery=:any (default) : Print files with or without tags.
+--tagquery=:tagged : Print only files with tags.
+--tagquery=:none : Print only files without tags.
+--print-empty=yes : Same as --tagquery=:any
+--print-empty=no : Same as --tagquery=:tagged
 --stdin : Get filenames from stdin rather than command-line.
 $format_usage
 --recursive=yes (default w/o --stdin) : Dump directories, recursively.
@@ -961,7 +965,8 @@ It follows symlinks.
 " if !@ARGV or $ARGV[0] eq "--help";
   my($printfn);
   my $format_func;
-  my $do_print_empty = 1;
+  my $any_match_func = sub { 1 };
+  my $match_func = $any_match_func;
   my $is_stdin = 0;
   my $is_recursive;
   my $i = 0;
@@ -972,9 +977,11 @@ It follows symlinks.
     elsif ($arg eq "--stdin") { $is_stdin = 1 }
     elsif ($arg eq "--sh" or $arg eq "--colon" or $arg eq "--mfi" or $arg eq "--mscan") { $format_func = get_format_func(substr($arg, 2), 1) }
     elsif ($arg =~ m@\A--format=(.*)@s) { $format_func = get_format_func($1, 1) }
-    elsif ($arg eq "--print-empty=yes") { $do_print_empty = 1 }
-    elsif ($arg eq "--print-empty=no") { $do_print_empty = 0 }
+    elsif ($arg eq "--print-empty=yes" or $arg eq "--tagquery=:any") { $match_func = $any_match_func }
+    elsif ($arg eq "--print-empty=no" or $arg eq "--tagquery=:tagged" or $arg eq "--tagquery=*") { $match_func = sub { my $tags = $_[1]; $tags =~ m@[^\s,]@ } }
+    elsif ($arg eq "--tagquery=:none" or $arg eq "--tagquery=-*") { $match_func = sub { 0 } }
     elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
+    elsif ($arg =~ m@\A--tagquery=@) { die "$0: fatal: unsupported flag value: $arg\n" }
     elsif ($arg eq "--recursive=yes") { $is_recursive = 1 }
     elsif ($arg eq "--recursive=no") { $is_recursive = 0 }
     elsif ($arg =~ m@\A--printfn=(.*)@s) { $printfn = $1 }
@@ -986,9 +993,6 @@ It follows symlinks.
     splice(@ARGV, 0, $i);
   }
   $format_func = get_format_func($format_func, 1) if !ref($format_func);
-  my $match_func = $do_print_empty ?
-      sub { 1 } :
-      sub { my $tags = $_[1]; $tags =~ m@[^\s,]@ };  # my($fn0, $tags) = @_;
   find_matches($format_func, $match_func, "dumped", $printfn, $is_recursive, $is_stdin);
 }
 
