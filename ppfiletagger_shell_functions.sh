@@ -801,39 +801,86 @@ Example: ls | _mmfs_grep \"+foo -bar baz\"
   print STDERR "warning: had error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 }
 
-# --- _mmfs_dump : xattr
+# --- get_format_func
+
+sub fnq($) {
+  #return $_[0] if substr($_[0],0,1)ne"-";
+  return $_[0] if $_[0]!~m@[^-_/.0-9a-zA-Z]@;
+  my $S=$_[0];
+  $S=~s@\x27@\x27\\\x27\x27@g;
+  "\x27$S\x27"
+}
+
+sub gfaq($) {
+  my $S = $_[0];
+  $S =~ s@(["\\])@\\$1@g;
+  $S =~ s@([\r\n])@ sprintf("\\%03o", ord($1)) @ge;
+  # No need to escape [\x80-\xff] , `getfattr -e text` does not do it either.
+  qq("$S")
+}
+
+my %tagvs_encountered;
+sub get_format_func($;$) {
+  my($format, $is_fatal) = @_;
+  (!defined($format) or $format eq "sh" or $format eq "setfattr") ? sub {
+    my($tags, $filename) = @_;
+    length($tags) ?
+        "setfattr -n $key0 -v " . fnq($tags) . " -- " . fnq($filename) . "\n" :
+        "setfattr -x $key0 -- " . fnq($filename) . "\n"
+  } : ($format eq "colon") ? sub {
+    my($tags, $filename) = @_;
+    "$tags :: $filename\n"
+  } : ($format eq "tags" or $format eq "tagvs") ? sub {
+    my($tags, $filename) = @_;
+    my $result = "";
+    while ($tags=~/([^\s,]+)/g) {
+      my $tagv = $1;
+      if (!exists($tagvs_encountered{$tagv})) {
+        $tagvs_encountered{$tagv} = 1;
+        $result .= "$tagv\n";
+      }
+    }
+    $result
+  } : ($format eq "filename") ? sub {
+    "$_[1]\n"  # $filename.
+  } : ($format eq "getfattr") ? sub {
+    my($tags, $filename) = @_;
+    # getfattr always omits files without tags (i.e. without the
+    # $key0 extended attribute). Use _mmfs_dump --print-empty=no
+    # to get this behavior.
+    "# file: $filename\n$key0=" . gfaq($tags). "\n\n"
+  } : ($format eq "mfi" or $format eq "mediafileinfo" or $format eq "mscan") ? sub {
+    my($tags, $filename) = @_;
+    my $tagsc = $tags;
+    $tagsc =~ s@[\s,]+@,@g;
+    $tagsc =~ s@%@%25@g;
+    $tagsc =~ s@\A,+@@; $tagsc =~ s@,+\Z(?!\n)@@;
+    my @st = stat($filename);
+    @st ? "format=?-no-try mtime=$st[9] size=$st[7] tags=$tagsc f=$filename\n"
+        : "format=?-no-try tags=$tagsc f=$filename\n"
+  } : $is_fatal ? die("$0: fatal: unknown output format: $format\n") : undef
+}
+
+my $format_usage =
+"--format=sh (default) : Print a series of setfattr commands.
+--format=colon: Print in the colon format: <tags> :: <filename>
+--format=getfattr : Print the same output as: getfattr -e text
+--format=mfi : Print in the mediafileinfo format.
+--format=filename : Print filename only.
+--format=tags : Print tags (including v:...) encountered (deduplicated).";
+
+# --- _mmfs_dump : xattr get_format_func
 
 #** Example: _copyattr() { _mmfs_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne "print if s@^rm -f @_copyattr @ and s@ #, keep @ @" >_d.sh; source _d.sh | sh
 sub _mmfs_dump {
-  sub fnq($) {
-    #return $_[0] if substr($_[0],0,1)ne"-";
-    return $_[0] if $_[0]!~m@[^-_/.0-9a-zA-Z]@;
-    my $S=$_[0];
-    $S=~s@\x27@\x27\\\x27\x27@g;
-    "\x27$S\x27"
-  }
-
-  sub gfaq($) {
-    my $S = $_[0];
-    $S =~ s@(["\\])@\\$1@g;
-    $S =~ s@([\r\n])@ sprintf("\\%03o", ord($1)) @ge;
-    # No need to escape [\x80-\xff] , `getfattr -e text` does not do it either.
-    qq("$S")
-  }
-
   die "$0: dumps tags on files to stdout
 Usage: $0 [<flag> ...] <filename> [...] > <tagfile>
 Flags:
 --printfn=<filename> : In the output, print the specified filename instead.
 --print-empty=yes (default) : Print files without tags.
 --print-empty=no : Hide files without tags.
---format=sh (default) : Print a series of setfattr commands.
---format=colon: Print in the colon format: <tags> :: <filename>
---format=getfattr : Print the same output as: getfattr -e text
---format=mfi : Print in the mediafileinfo format.
---format=filename : Print filename only.
---format=tags : Print tags (including v:...) encountered (deduplicated).
 --stdin : Get filenames from stdin rather than command-line.
+$format_usage
 --recursive=yes (default) : Dump directories, recursively.
 --recursive=no : Dump files only.
 To apply tags in <tagfile> printed by $0 (any --format=...), run:
@@ -841,7 +888,7 @@ To apply tags in <tagfile> printed by $0 (any --format=...), run:
 It follows symlinks.
 " if !@ARGV or $ARGV[0] eq "--help";
   my($printfn);
-  my $format = "sh";
+  my $format_func;
   my $do_print_empty = 1;
   my $is_stdin = 0;
   my $is_recursive = 1;
@@ -851,13 +898,8 @@ It follows symlinks.
     if ($arg eq "-" or substr($arg, 0, 1) ne "-") { --$i; last }
     elsif ($arg eq "--") { last }
     elsif ($arg eq "--stdin") { $is_stdin = 1 }
-    elsif ($arg eq "--format=sh" or $arg eq "--format=setfattr" or $arg eq "--sh") { $format = "sh" }
-    elsif ($arg eq "--format=colon" or $arg eq "--colon") { $format = "colon" }
-    elsif ($arg eq "--format=getfattr") { $format = "getfattr" }
-    elsif ($arg eq "--format=mfi" or $arg eq "--format=mediafileinfo" or $arg eq "--format=mscan" or $arg eq "--mfi" or $arg eq "--mscan") { $format = "mfi" }
-    elsif ($arg eq "--format=filename") { $format = "filename" }
-    elsif ($arg eq "--format=tags" or $arg eq "--format=tagvs") { $format = "tags" }
-    elsif ($arg =~ m@\A--format=@) { die "$0: fatal: unknown flag value: $arg\n" }
+    elsif ($arg eq "--sh" or $arg eq "--colon" or $arg eq "--mfi" or $arg eq "--mscan") { $format_func = get_format_func(substr($arg, 2), 1) }
+    elsif ($arg =~ m@\A--format=(.*)@s) { $format_func = get_format_func($1, 1) }
     elsif ($arg eq "--print-empty=yes") { $do_print_empty = 1 }
     elsif ($arg eq "--print-empty=no") { $do_print_empty = 0 }
     elsif ($arg eq "--recursive=yes") { $is_recursive = 1 }
@@ -871,47 +913,7 @@ It follows symlinks.
   } else {
     splice(@ARGV, 0, $i);
   }
-
-  my %tagvs_encountered;
-  my $dump_func =
-      ($format eq "sh") ? sub {
-        my($tags, $filename) = @_;
-        length($tags) ?
-            "setfattr -n $key0 -v " . fnq($tags) . " -- " . fnq($filename) . "\n" :
-            "setfattr -x $key0 -- " . fnq($filename) . "\n"
-      } : ($format eq "colon") ? sub {
-        my($tags, $filename) = @_;
-        "$tags :: $filename\n"
-      } : ($format eq "tags") ? sub {
-        my($tags, $filename) = @_;
-        my $result = "";
-        while ($tags=~/([^\s,]+)/g) {
-          my $tagv = $1;
-          if (!exists($tagvs_encountered{$tagv})) {
-            $tagvs_encountered{$tagv} = 1;
-            $result .= "$tagv\n";
-          }
-        }
-        $result
-      } : ($format eq "filename") ? sub {
-        "$_[1]\n"  # $filename.
-      } : ($format eq "getfattr") ? sub {
-        my($tags, $filename) = @_;
-        # getfattr always omits files without tags (i.e. without the
-        # $key0 extended attribute). Use _mmfs_dump --print-empty=no
-        # to get this behavior.
-        "# file: $filename\n$key0=" . gfaq($tags). "\n\n"
-      } : ($format eq "mfi") ? sub {
-        my($tags, $filename) = @_;
-        my $tagsc = $tags;
-        $tagsc =~ s@[\s,]+@,@g;
-        $tagsc =~ s@%@%25@g;
-        $tagsc =~ s@\A,+@@; $tagsc =~ s@,+\Z(?!\n)@@;
-        my @st = stat($filename);
-        @st ? "format=?-no-try mtime=$st[9] size=$st[7] tags=$tagsc f=$filename\n"
-            : "format=?-no-try tags=$tagsc f=$filename\n"
-      } : undef;
-  die "$0: assert: unknown format: $format\n" if !defined($dump_func);
+  $format_func = get_format_func($format_func, 1) if !ref($format_func);
 
   #print "to these files:\n";
   my $process_file = sub {  # ($).
@@ -934,7 +936,7 @@ It follows symlinks.
     ++$C;
     if (length($tags) or $do_print_empty) {
       ++$HC if length($tags);
-      print $dump_func->($tags, defined($printfn) ? $printfn : $fn0);
+      print $format_func->($tags, defined($printfn) ? $printfn : $fn0);
       #$tags = ":none" if !length($tags); print "    $tags\n";
     }
   };
