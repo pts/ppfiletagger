@@ -20,6 +20,25 @@ my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
                            [\xF0-\xF4] [\x80-\xBF]{3}) /xo;
 
 # --- xattr
+#
+# The xattr API is a hashref $attr_api:
+#
+# * $xattr_api->{getxattr}->($filename, $key):
+#   On success, returns the value. On error, returns undef and sets $!, e.g.
+#   $!{$ENOATTR} if the file does not have $key as extended attribute. It
+#   fails with $!{EOPNOTSUPP} (Operation not supported) if $key does not
+#   start with "user." (without the quotes) on Linux.
+# * $xattr_api->{removexattr}->($filename, $key);
+#   On success, returns the 1. On error, returns undef and sets $!, e.g.
+#   $!{$ENOATTR} if the file did not have $key as extended attribute. It
+#   fails with $!{EOPNOTSUPP} (Operation not supported) if $key does not
+#   start with "user." (without the quotes) on Linux.
+# * $xattr_api->{setxattr}->($filename, $key, $value);
+#   On success, returns the 1. On error, returns undef and sets $!, e.g.
+#   $!{$ENOATTR} if the file did not have $key as extended attribute. It
+#   fails with $!{EOPNOTSUPP} (Operation not supported) if $key does not
+#   start with "user." (without the quotes) on Linux.
+#
 
 sub get_archname() {
   # This is still slow: return (eval { require Config; die if !%Config::Config; $Config::Config{archname} } or "");
@@ -34,82 +53,89 @@ sub get_archname() {
   }
   ""
 }
-sub get_xattr_syscalls() {
-  if ($^O eq "linux") {
-    my $archname = get_archname();
-    if ($archname =~ m@\A(?:x86_64|amd64)-@) {
-      return (191, 197, 188);
-    } elsif ($archname =~ m@\A(?:i[3-6]86-|arm(?!64))@) {
-      return (229, 235, 226);
-    } elsif ($archname =~ m@\A(?:arm|aarch)64@) {
-      return (8, 14, 5)
-    } elsif ($archname =~ m@\Asparc@) {
-      return (172, 181, 169)
-    }
+
+sub get_linux_xattr_syscalls() {
+  my $archname = get_archname();
+  if ($archname =~ m@\A(?:x86_64|amd64)-@) {
+    return (191, 197, 188);
+  } elsif ($archname =~ m@\A(?:i[3-6]86-|arm(?!64))@) {
+    return (229, 235, 226);
+  } elsif ($archname =~ m@\A(?:arm|aarch)64@) {
+    return (8, 14, 5)
+  } elsif ($archname =~ m@\Asparc@) {
+    return (172, 181, 169)
   }
   # This works on Linux, but `require "syscall.ph" is quite slow.
+  # It does not work in FreeBSD, because FreeBSD has extattr_set_file(2) etc.
   my @result = eval { package syscall; require "syscall.ph"; &syscall::SYS_getxattr, &syscall::SYS_removexattr, &syscall::SYS_setxattr };
   die "fatal: setxattr or similar syscalls not available\n" if @result != 3;
   @result
 }
-my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
+
 # FreeBSD and macOS have ENOATTR, Linux has ENODATA.
 my $ENOATTR = exists($!{ENOATTR}) ? "ENOATTR" : "ENODATA";
-my $key0 = "user.mmfs.tags";
 
-#** On error, returns undef and sets $!, e.g. $!{$ENOATTR} if the file does
-#** not have $key as extended attribute.
-#**
-#** It fails with $!{EOPNOTSUPP} (Operation not supported) if $key does not
-#** start with "user." (without the quotes) on Linux.
-sub getxattr($$) {
-  my($filename, $key) = @_;
-  my $result = "\0" x 65535;
-  # For syscall, $key must be a variable, it cannot be a read-only literal.
-  my $got = syscall($SYS_getxattr, $filename, $key, $result, length($result), 0);
-  if (defined($got) and $got >= 0) {
-    substr($result, $got) = "";
-    #$result =~ s@\0.*@@s;  # Not needed anymore.
-    $result
-  } else {
-    undef
-  }
-}
-
-sub removexattr($$) {
-  my($filename, $key) = @_;
-  my $got = syscall($SYS_removexattr, $filename, $key);
-  (defined($got) and $got == 0) ? 1 : undef
-}
-
-sub setxattr($$$) {
-  my($filename, $key, $value) = @_;
-  my $got = syscall($SYS_setxattr, $filename, $key, $value, length($value), 0);
-  (defined($got) and $got == 0) ? 1 : undef
-}
-
-sub setxattr_safe($$$$$) {
-  my($filename, $key, $old_value, $value, $do_remove_if_empty) = @_;
-  die "$0: assert: undefined old value for xattr key: $key\n" if !defined($old_value);
-  die "$0: assert: undefined value for xattr key: $key\n" if !defined($value);
-  return removexattr($filename, $key) if $do_remove_if_empty and !length($value);
-  if (length($value) > 0 and !defined($old_value)) {
-    return undef if !defined($old_value = getxattr($filename, $key));
-  }
-  if (length($value) > 0 and length($value) < length($old_value)) {
+sub get_xattr_api() {
+  my $xattr_api = {};
+  if ($^O eq "linux") {
+    my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_linux_xattr_syscalls();
+    $xattr_api->{getxattr} = sub {  # ($$).
+      my($filename, $key) = @_;
+      my $result = "\0" x 65535;
+      # For syscall, $key must be a variable, it cannot be a read-only literal.
+      my $got = syscall($SYS_getxattr, $filename, $key, $result, length($result), 0);
+      if (defined($got) and $got >= 0) {
+        substr($result, $got) = "";
+        #$result =~ s@\0.*@@s;  # Not needed anymore.
+        $result
+      } else {
+        undef
+      }
+    };
+    $xattr_api->{removexattr} = sub {  # ($$).
+      my($filename, $key) = @_;
+      my $got = syscall($SYS_removexattr, $filename, $key);
+      (defined($got) and $got == 0) ? 1 : undef
+    };
+    $xattr_api->{setxattr} = sub {  # ($$$).
+      my($filename, $key, $value) = @_;
+      my $got = syscall($SYS_setxattr, $filename, $key, $value, length($value), 0);
+      (defined($got) and $got == 0) ? 1 : undef
+    };
     # There is a reiserfs bug on Linux 2.6.31: cannot reliably set the
     # extended attribute to a shorter value. Workaround: set it to the empty
     # value (or remove it) first.
     #
     # TODO(pts): Enable the workaround for Linux <3.0 only.
-    if (!setxattr($filename, $key, "")) {
-      setxattr($filename, $key, $old_value);  # Try to restore the old value.
-      return undef;
+    $xattr_api->{need_setxattrw} = 1;
+  }
+  die "fatal: xattr not available\n" if !defined($xattr_api->{setxattr});
+  $xattr_api
+}
+
+my $xattr_api = get_xattr_api();
+
+sub setxattr_safe($$$$$) {
+  my($filename, $key, $old_value, $value, $do_remove_if_empty) = @_;
+  die "$0: assert: undefined old value for xattr key: $key\n" if !defined($old_value);
+  die "$0: assert: undefined value for xattr key: $key\n" if !defined($value);
+  return $xattr_api->{removexattr}->($filename, $key) if $do_remove_if_empty and !length($value);
+  if ($xattr_api->{need_setxattrw}) {
+    if (length($value) > 0 and !defined($old_value)) {
+      return undef if !defined($old_value = $xattr_api->{getxattr}->($filename, $key));
+    }
+    if (length($value) > 0 and length($value) < length($old_value)) {
+      if (!$xattr_api->{setxattr}->($filename, $key, "")) {
+        $xattr_api->{setxattr}->($filename, $key, $old_value);  # Try to restore the old value.
+        return undef;
+      }
     }
   }
   return 1 if defined($old_value) and $old_value eq $value;
-  setxattr($filename, $key, $value)
+  $xattr_api->{setxattr}->($filename, $key, $value)
 }
+
+my $key0 = "user.mmfs.tags";
 
 # --- read_tags_file
 
@@ -244,7 +270,7 @@ sub apply_tagspec($$$$) {
     # Populates $old_tags_str, %old_tags_hash, @old_tags, maybe modifies
     # $ptags_ref and $mtags_ref.
     {
-      $old_tags_str = getxattr($fn0, $key0);
+      $old_tags_str = $xattr_api->{getxattr}->($fn0, $key0);
       if (!defined($old_tags_str) and !$!{$ENOATTR}) {
         my $is_eio = $!{EIO};
         print "    error getting: $!\n"; $EC++;
@@ -435,7 +461,7 @@ Usage: $0 <file1> <file2>
   sub get_tags($) {
     my $fn0 = $_[0];
     #print "  $fn0\n";
-    my $tags = getxattr($fn0, $key0);
+    my $tags = $xattr_api->{getxattr}->($fn0, $key0);
     if (!defined($tags) and !$!{$ENOATTR}) {
       print "  get-error: $fn0: $!\n"; $EC++;
       return undef;
@@ -451,7 +477,7 @@ Usage: $0 <file1> <file2>
     die "error: bad add-tags syntax: $tags\n" if $tags =~ /[+-]/;
     return if $tags !~ /\S/ and !%rmtags;
     #print "  $fn0\n";
-    my $tags0 = getxattr($fn0, $key0);
+    my $tags0 = $xattr_api->{getxattr}->($fn0, $key0);
     if (!defined($tags0) and !$!{$ENOATTR}) {
       print "  add-get-error: $fn0: $!\n"; $EC++; return
     }
@@ -573,7 +599,7 @@ sub _mmfs_show {
     } else {
       print "  $fn0\n";
     }
-    my $tags = getxattr($fn0, $key0);
+    my $tags = $xattr_api->{getxattr}->($fn0, $key0);
     if (!defined($tags) and !$!{$ENOATTR}) {
       print "    error: $!\n"; $EC++
     } else {
@@ -620,7 +646,7 @@ sub _mmfs_show {
 sub _mmfs_get_tags {
   die "error: not a single filename specified\n" if @ARGV != 1;
   my $fn0 = $ARGV[0];
-  my $tags = getxattr($fn0, $key0);
+  my $tags = $xattr_api->{getxattr}->($fn0, $key0);
   if (defined($tags)) {
     exit(1) if 0 == length($tags);
     print "$tags\n";
@@ -676,7 +702,7 @@ sub _mmfs_grep {
   while (defined($fn0=<STDIN>)) {
     chomp $fn0;
     #print "  $fn0\n";
-    my $tags = getxattr($fn0, $key0);
+    my $tags = $xattr_api->{getxattr}->($fn0, $key0);
     if (!defined($tags) and !$!{$ENOATTR}) {
       print STDERR "error: $fn0: $!\n"; $EC++
     } else {
@@ -805,7 +831,7 @@ It follows symlinks.
     if ($fn0 =~ y@\n@@) {
       print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; $EC++; return
     }
-    my $tags = getxattr($fn0, $key0);
+    my $tags = $xattr_api->{getxattr}->($fn0, $key0);
     if (!defined($tags) and !$!{$ENOATTR}) {
       print STDERR "error: $fn0: $!\n"; $EC++; return
     }
