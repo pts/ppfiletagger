@@ -873,6 +873,7 @@ my $format_usage =
 
 sub find_matches($$$$$$) {
   my($format_func, $match_func, $action, $printfn, $is_recursive, $is_stdin) = @_;
+  $is_recursive = $is_stdin ? 0 : 1 if !defined($is_recursive);
   #print "to these files:\n";
   my $process_file = sub {  # ($).
     my $fn0 = $_[0];
@@ -943,7 +944,7 @@ Flags:
 --print-empty=no : Hide files without tags.
 --stdin : Get filenames from stdin rather than command-line.
 $format_usage
---recursive=yes (default) : Dump directories, recursively.
+--recursive=yes (default w/o --stdin) : Dump directories, recursively.
 --recursive=no : Dump files only.
 To apply tags in <tagfile> printed by $0 (any --format=...), run:
   _mmfs_tag --stdin --mode=change < <tagfile>
@@ -953,7 +954,7 @@ It follows symlinks.
   my $format_func;
   my $do_print_empty = 1;
   my $is_stdin = 0;
-  my $is_recursive = 1;
+  my $is_recursive;
   my $i = 0;
   while ($i < @ARGV) {
     my $arg = $ARGV[$i++];
