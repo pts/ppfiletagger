@@ -622,14 +622,17 @@ die "$0: shows tags the specified files have
 Usage: $0 [<flag> ...] [<filename> ...]
 Flags:
 --abspath : Display absolute pathname of each matching file.
---print-empty=yes (default) : Show files without tags.
---print-empty=no : Hide files without tags.
+--tagquery=:any (default) : Print files with or without tags.
+--tagquery=:tagged : Print only files with tags.
+--tagquery=:none : Print only files without tags.
+--print-empty=yes : Same as --tagquery=:any
+--print-empty=no : Same as --tagquery=:tagged
 --recursive=yes : Show contents of directories, recursively.
 --recursive=no (default) : Show files only.
 --recursive=one : Show contents of specified directories (not recursive).
 --readdir : Legacy alias for --recursive=one
 " if @ARGV and $ARGV[0] eq "--help";
-  my $do_print_empty = 1;
+  my $print_mode = 0;
   my $recursive_mode = 0;
   my $do_show_abs_path = 0;
   my $i = 0;
@@ -642,9 +645,11 @@ Flags:
     elsif ($arg eq "--recursive=no") { $recursive_mode = 0 }
     elsif ($arg eq "--recursive=one" or $arg eq "--readdir") { $recursive_mode = 1 }
     elsif ($arg =~ m@\A--recursive=@) { die "$0: fatal: unknown flag value: $arg\n" }
-    elsif ($arg eq "--print-empty=yes") { $do_print_empty = 1 }
-    elsif ($arg eq "--print-empty=no") { $do_print_empty = 0 }
+    elsif ($arg eq "--print-empty=yes" or $arg eq "--tagquery=:any") { $print_mode = 0 }
+    elsif ($arg eq "--print-empty=no" or $arg eq "--tagquery=:tagged" or $arg eq "--tagquery=*") { $print_mode = 1 }
+    elsif ($arg eq "--tagquery=:none" or $arg eq "--tagquery=-*") { $print_mode = -1 }
     elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
+    elsif ($arg =~ m@\A--tagquery=@) { die "$0: fatal: unsupported flag value, use find instead: $arg\n" }
   }
   splice @ARGV, 0, $i;
   require Cwd if $do_show_abs_path;
@@ -673,7 +678,7 @@ Flags:
       my @tags = split/\s+/, $tags;
       $HC++ if @tags;
       $C++;
-      if (@tags or $do_print_empty) {
+      if (!$print_mode or ($print_mode > 0 ? scalar(@tags) : !@tags)) {
         my @n_tags = grep { !/^v:/ } @tags;
         my @v_tags = grep { /^v:/  } @tags;
         @n_tags=(":none") if !@n_tags;
