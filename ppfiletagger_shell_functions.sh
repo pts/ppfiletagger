@@ -11,7 +11,7 @@ $_ = "\n\n\n\n\n\n\n\n" . <<'END';
 # ppfiletagger_shell_functions.sh for bash and zsh
 # by pts@fazekas.hu at Sat Jan 20 22:29:43 CET 2007
 #
-# TODO(pts): Make it work on macOS.
+# TODO(pts): Rename mmfs, movemetafs, ppfiletagger.
 #
 
 # Simple superset of UTF-8 words.
@@ -373,10 +373,10 @@ sub apply_to_multiple($$) {
 #** It works for weird filenames (containing e.g. " " or "\n"), too.
 #** SUXX: prompt questions may not contain macros
 #** SUXX: no way to signal an error
-#** @example _mmfs_tag "tag1 -tag2 ..." file1 file2 ...    # keep tag3
+#** Example: _mmfs_tag "tag1 -tag2 ..." file1 file2 ...    # keep tag3
 sub _mmfs_tag {
   die "$0: adds or removes tags on files
-Usage: $0 \x27tagspec\x27 filename1 ...
+Usage: $0 \x27<tagspec>\x27 [<filename> ...]
     or ls | $0 --stdin <tagspec>
     or $0 --stdin [<flag> ...] < <tagfile>
 <tagfile> contains:
@@ -469,13 +469,11 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
 
 #** Makes both files have the union of the tags.
 #** SUXX: needed 2 runs: modified 32, then 4, then 0 files (maybe because of
-#**   equivalence classes)
-#** @example _mmfs_unify_tags file1 file2
-#** @example echo "... 'file1' ... 'file2' ..." ... | _mmfs_unify_tags --stdin
+#**       equivalence classes)
 sub _mmfs_unify_tags {
   die "$0: makes both files have to union of tags
-Usage: $0 <file1> <file2>
-    or echo \"... \x27file1\x27 ... \x27file2\x27 ...\" ... | $0 --stdin
+Usage: $0 <filename1> <filename2>
+    or echo \"... \x27filename1\x27 ... \x27filename2\x27 ...\" ... | $0 --stdin
 " if @ARGV!=2 and @ARGV!=1;
   print "unifying tags\n";
 
@@ -604,9 +602,15 @@ Usage: $0 <file1> <file2>
 #** SUXX: no way to signal an error
 #** @example _mmfs_show file1 file2 ...
 sub _mmfs_show {
-  use Cwd;
+  require Cwd;
   my $do_show_abs_path = 0;
   my $do_readdir = 0;
+  if (@ARGV and $ARGV[0] eq "--abspath") { $do_show_abs_path = 1; shift @ARGV }
+  if (@ARGV and $ARGV[0] eq "--readdir") { $do_readdir = 1; shift @ARGV }
+die "$0: shows tags the specified files have
+Usage: $0 [<filename> ...]
+" if @ARGV and $ARGV[0] eq "--help";
+  if (@ARGV and $ARGV[0] eq "--") { shift @ARGV }
   my $process_file = sub {  # ($)
     my $fn0 = $_[0];
     $fn0 =~ s@\A(?:[.]/)+@@;
@@ -634,8 +638,6 @@ sub _mmfs_show {
       print "    @v_tags\n" if @v_tags;
     }
   };
-  if (@ARGV and $ARGV[0] eq "--abspath") { $do_show_abs_path = 1; shift @ARGV }
-  if (@ARGV and $ARGV[0] eq "--readdir") { $do_readdir = 1; shift @ARGV }
   if ($do_readdir) {
     for my $arg (@ARGV) {
       if (-d $arg) {
@@ -645,6 +647,7 @@ sub _mmfs_show {
         #while (defined($entry = readdir($d))) {...}
         for my $entry (sort readdir($d)) {
           next if $entry eq "." or $entry eq "..";
+          # TODO(pts): Do it recursively.
           $process_file->("$arg/$entry");
         }
         die if !closedir $d;
@@ -664,9 +667,9 @@ sub _mmfs_show {
 #** Like _mmfs_show, but only one file, and without extras. Suitable for
 #** scripting.
 #** It works for weird filenames (containing e.g. " " or "\n"), too.
-#** @example _mmfs_get_tags file1
 sub _mmfs_get_tags {
-  die "error: not a single filename specified\n" if @ARGV != 1;
+  die "$0: displays tags a sigle file has
+Usage: $0 <filename>\n" if @ARGV != 1;
   my $fn0 = $ARGV[0];
   my $tags = $xattr_api->{getxattr}->($fn0, $key0);
   if (defined($tags)) {
@@ -749,7 +752,7 @@ sub _mmfs_grep {
 
 # --- _mmfs_dump : xattr
 
-#** @example _copyattr() { _mmfs_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne "print if s@^rm -f @_copyattr @ and s@ #, keep @ @" >_d.sh; source _d.sh | sh
+#** Example: _copyattr() { _mmfs_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne "print if s@^rm -f @_copyattr @ and s@ #, keep @ @" >_d.sh; source _d.sh | sh
 sub _mmfs_dump {
   sub fnq($) {
     #return $_[0] if substr($_[0],0,1)ne"-";
