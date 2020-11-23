@@ -737,6 +737,7 @@ sub parse_tagquery($) {
   for my $termlist (split /\|/, $tagquery) {
     pos($termlist) = 0;
     my($needplus, $needminus, $ignore) = ({}, {}, {});
+    my $had_any = 0;
     while ($termlist=~/(\S+)/g) {
       my $tagv = $1;
       if ($tagv =~ s@^-@@) {
@@ -745,13 +746,21 @@ sub parse_tagquery($) {
       } elsif ($tagv =~ s@^[*]-@@) {
         $ignore->{$tagv} = 1;
         $needplus->{"*"} = 1;
+      } elsif ($tagv =~ m@^:@) {
+        if ($tagv eq ":none") {
+          $needminus->{"*"} = 1; next
+        } elsif ($tagv eq ":tagged") {
+          $needplus->{"*"} = 1; next
+        } elsif ($tagv eq ":any") {
+          $had_any = 1; next
+        }
       } else {
         $needplus->{$tagv} = 1;
         next if $tagv eq "*";
       }
       die "$0: fatal: invalid tagv syntax: $tagv\n" if $tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@;
     }
-    die "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !%$needplus and !%$needminus;
+    die "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !($had_any or %$needplus or %$needminus);
     #print STDERR "info: query spec needplus=(@{[sort keys%$needplus]}) needminus=(@{[sort keys%$needminus]}) ignore=(@{[sort keys%$ignore]})\n";
     push @orterms, [$needplus, $needminus, $ignore];
   }
