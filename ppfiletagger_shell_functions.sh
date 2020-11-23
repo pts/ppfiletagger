@@ -402,7 +402,6 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
   my $action = "modified";
   if (@ARGV == 2 and $ARGV[0] eq "--stdin" and $ARGV[1] ne "-" and substr($ARGV[1], 0, 2) ne "--") {
     # Read filenames from stdin, apply tags in $ARGV[1];
-    my $f;
     my($tagspec, $filenames) = ($ARGV[1], [<STDIN>]);
     for my $fn0 (@$filenames) { chomp($fn0); }
     ($action, $tagspecmsg) = apply_to_multiple($tagspec, $filenames);
@@ -429,7 +428,6 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
     my $sharg_re = qr@[^\s()\\\x27"`;&<>*?\[\]$|#]+|\x27(?:[^\x27]++|\x27\\\x27\x27)*+\x27@;
     my $sharg_decode = sub { my $s = $_[0]; $s =~ s@\x27\\\x27\x27@\x27@g if $s =~ s@\A\x27(.*)\x27@$1@s; $s };
     my($line, $cfilename, $lineno);
-    my $f;
     while (defined($line = <STDIN>)) {
       $lineno = $.;
       if ($line =~ m@^# file: (.*)$@) {  # Output of getfattr.
