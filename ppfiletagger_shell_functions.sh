@@ -601,24 +601,29 @@ Usage: $0 <filename1> <filename2>
 #** SUXX: prompt questions may not contain macros
 #** SUXX: no way to signal an error
 sub _mmfs_show {
-  require Cwd;
-  my $do_show_abs_path = 0;
-  my $do_readdir = 0;
 die "$0: shows tags the specified files have
 Usage: $0 [<flag> ...] [<filename> ...]
 Flags:
 --abspath : Display absolute pathname of each matching file.
---readdir : Lists contents of specified directories (not recursive).
+--recursive=yes : Show contents of directories, recursively.
+--recursive=no (default) : Show files only.
+--recursive=one : Show contents of specified directories (not recursive).
+--readdir : Legacy alias for --recursive=one
 " if @ARGV and $ARGV[0] eq "--help";
+  my $recursive_mode = 0;
+  my $do_show_abs_path = 0;
   my $i = 0;
   while ($i < @ARGV) {
     my $arg = $ARGV[$i++];
     if ($arg eq "-" or substr($arg, 0, 1) ne "-") { --$i; last }
     elsif ($arg eq "--") { last }
     elsif ($arg eq "--abspath") { $do_show_abs_path = 1 }
-    elsif ($arg eq "--readdir") { $do_readdir = 1 }
+    elsif ($arg eq "--recursive=yes") { $recursive_mode = 2 }
+    elsif ($arg eq "--recursive=no") { $recursive_mode = 0 }
+    elsif ($arg eq "--recursive=one" or $arg eq "--readdir") { $recursive_mode = 1 }
   }
   splice @ARGV, 0, $i;
+  require Cwd if $do_show_abs_path;
   my $process_file = sub {  # ($)
     my $fn0 = $_[0];
     $fn0 =~ s@\A(?:[.]/)+@@;
@@ -646,25 +651,29 @@ Flags:
       print "    @v_tags\n" if @v_tags;
     }
   };
-  if ($do_readdir) {
-    for my $fn0 (@ARGV) {
-      if (-d($fn0)) {
-        my $d;
-        if (!opendir($d, $fn0)) {
-          print "  $fn0\n    error: opendir: $!\n"; $EC++; next
-        }
-        for my $entry (sort readdir($d)) {
-          next if $entry eq "." or $entry eq "..";
-          # TODO(pts): Do it recursively.
-          $process_file->("$fn0/$entry");
-        }
-        die if !closedir($d);
+  my $process_dir; $process_dir = sub {  # ($).
+    my $fn0 = $_[0];
+    my $d;
+    if (!opendir($d, $fn0)) {
+      print "  $fn0\n    error: opendir: $!\n"; $EC++; return
+    }
+    for my $entry (sort(readdir($d))) {
+      next if $entry eq "." or $entry eq "..";
+      my $fn1 = "$fn0/$entry";
+      if ($recursive_mode == 2 and -d($fn1)) {
+        $process_dir->($fn1);
       } else {
-        $process_file->($fn0);
+        $process_file->($fn1);
       }
     }
-  } else {
-    for my $fn0 (@ARGV) { $process_file->($fn0) }
+    die if !closedir($d);
+  };
+  for my $fn0 (@ARGV) {
+    if ($recursive_mode and -d($fn0)) {
+      $process_dir->($fn0);
+    } else {
+      $process_file->($fn0);
+    }
   }
   print "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
   print "shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
