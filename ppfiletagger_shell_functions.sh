@@ -39,8 +39,12 @@ sub get_xattr_syscalls() {
     my $archname = get_archname();
     if ($archname =~ m@\A(?:x86_64|amd64)-@) {
       return (191, 197, 188);
-    } elsif ($archname =~ m@\Ai[3-6]86-@) {
+    } elsif ($archname =~ m@\A(?:i[3-6]86-|arm(?!64))@) {
       return (229, 235, 226);
+    } elsif ($archname =~ m@\A(?:arm|aarch)64@) {
+      return (8, 14, 5)
+    } elsif ($archname =~ m@\Asparc@) {
+      return (172, 181, 169)
     }
   }
   # This works on Linux, but `require "syscall.ph" is quite slow.
