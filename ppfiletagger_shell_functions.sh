@@ -896,7 +896,7 @@ It follows symlinks.
   die "$0: assert: unknown format: $format\n" if !defined($dump_func);
 
   #print "to these files:\n";
-  my $dumpf = sub {  # ($)
+  my $process_file = sub {  # ($).
     my $fn0 = $_[0];
     #print "  $fn0\n";
     if (!-f($fn0)) {
@@ -920,34 +920,30 @@ It follows symlinks.
       #$tags = ":none" if !length($tags); print "    $tags\n";
     }
   };
-
-  my $dumpr = sub {  # ($)
-    my $path = $_[0];
-    if (-d($path)) {
-      require File::Find;  # Standard Perl module.
-      # Prints a 2-line error message to stderr for bad directories.
-      # TODO(pts): Better print error, propagate it as exit code.
-      File::Find::find(
-          {
-            wanted => sub { $dumpf->($_) },
-            no_chdir => 1,
-          }, $path);
-    } else {
-      $dumpf->($path);
+  my $process_xdir; $process_xdir = sub {  # ($).
+    my $fn0 = $_[0];
+    return $process_file->($fn0) if !-d($fn0);
+    my $d;
+    if (!opendir($d, $fn0)) {
+      print STDERR "error: opendir: $fn0: $!\n"; $EC++; return
     }
+    for my $entry (sort(readdir($d))) {
+      next if $entry eq "." or $entry eq "..";
+      $process_xdir->("$fn0/$entry");
+    }
+    die if !closedir($d);
   };
-
-  my $dumpp_func = $is_recursive ? $dumpr : $dumpf;
+  my $process_func = $is_recursive ? $process_xdir : $process_file;
   if ($is_stdin) {
     my $f;
     my $fn0;
     while (defined($fn0 = <STDIN>)) {
       chomp($fn0);
-      $dumpp_func->($fn0);
+      $process_func->($fn0);
     }
   } else {
     for my $fn0 (@ARGV) {
-      $dumpp_func->($fn0);
+      $process_func->($fn0);
     }
   }
 
