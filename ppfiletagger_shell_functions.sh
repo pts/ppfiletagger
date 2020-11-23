@@ -119,10 +119,6 @@ sub get_xattr_api() {
   } else {
     eval { require File::ExtAttr };  # https://metacpan.org/pod/File::ExtAttr
     die "fatal: please install Perl module File::ExtAttr\n" if $@;
-    if (!defined(&File::ExtAttr::openhandle)) {  # Bugfix for File::ExtAttr 1.09.
-      eval { package File::ExtAttr; use Scalar::Util qw(openhandle) };
-      die $@ if $@;
-    }
     my $fix_key = sub {
       my $key = $_[1];
       die "fatal: invalid xattr key, must start with user.: $key\n" if
