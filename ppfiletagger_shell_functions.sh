@@ -196,7 +196,52 @@ sub read_tags_file(;$) {
   $tags
 }
 
-# --- _mmfs_tag : xattr read_tags_file
+# --- parse_dump
+
+#** Reads and parses a dump file, and calls $process_func->($filename,
+#** $tags, $default_mode) for filename--tagvs pair found. Autodetects the
+#** input as the concatenation of any of the following formats: sh, colon,
+#** getfattr, mfi. See get_format_func for generating files in these
+#** formats.
+sub parse_dump($$) {
+  my($fh, $process_func) = @_;
+  my $sharg_re = qr@[^\s()\\\x27"`;&<>*?\[\]$|#]+|\x27(?:[^\x27]++|\x27\\\x27\x27)*+\x27@;
+  my $sharg_decode = sub { my $s = $_[0]; $s =~ s@\x27\\\x27\x27@\x27@g if $s =~ s@\A\x27(.*)\x27@$1@s; $s };
+  my($line, $cfilename, $lineno);
+  while (defined($line = <STDIN>)) {
+    $lineno = $.;
+    if ($line =~ m@^# file: (.*)$@) {  # Output of getfattr.
+      $cfilename = $1
+    } elsif ($line =~ /^([^#\n=:"]+)(?:="(.*?)")?$/) {  # Output of getfattr.
+      my($key, $value) = ($1, $2);
+      die "$0: bad key: $key ($lineno)\n" if $key =~ /["\\]/;
+      die "$0: missing filename for key: $key ($lineno)\n" if
+          !defined($cfilename);
+      $process_func->($cfilename, $value, ".") if $key eq $key0;
+    } elsif ($line =~ m@(.*?):: (.*?)$@) {
+      my($tagspec, $filename) = ($1, $2);
+      $process_func->($filename, $tagspec, undef);
+    } elsif ($line =~ m@^#@) {  # Comment.
+    } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+user.mmfs.tags[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*$@o) {
+      my $filename = $sharg_decode->($1);
+      $process_func->($filename, "", ".");
+    } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+user.mmfs.tags[ \t]+-v[ \t]+($sharg_re)[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*$@o) {
+      my($tags, $filename) = ($sharg_decode->($1), $sharg_decode->($2));
+      $process_func->($filename, $tags, ".");
+    } elsif ($line =~ m@^format=(?:[^ ]+)(?= )(.*?) f=(.*)$@) {  # mediafileinfo form.
+      my $filename = $2;
+      $line = $1;
+      my $tags = $line =~ m@ tags=([^ ]+)@ ? $1 : "";
+      $process_func->($filename, $tags, undef);
+    } elsif ($line !~ m@\S@) {
+      $cfilename = undef
+    } else {
+      die "$0: fatal: bad tagfile line ($lineno): $line";
+    }
+  }
+}
+
+# --- _mmfs_tag : xattr read_tags_file parse_dump
 
 my $known_tags = read_tags_file();
 my $pmtag_re = qr/(---|[-+]?)((?:v:)?(?:$tagchar_re)+)/o;
@@ -205,7 +250,8 @@ sub apply_tagspec($$$$) {
   my($tagspec, $mode, $filenames, $is_verbose) = @_;
   # Parse $tagspec (<tagpec>).
   $tagspec = "" if !defined($tagspec);
-  $tagspec =~ s@^[.]/@@;  # Prepended my Midnight Commander.
+  $tagspec =~ s@\A[.]/@@;  # Prepended by old versions of Midnight Commander.
+  $tagspec =~ s@\A\s+@@;
   $mode = "++" if !defined($mode) or !length($mode);
   die "fatal: bad mode: $mode\n" if $mode ne "." and $mode ne "+" and $mode ne "++";
   my @ptags;
@@ -213,7 +259,7 @@ sub apply_tagspec($$$$) {
   my @unknown_tags;
   my %fmtags_hash;
   # Overwrite tags if starts with a dot. Used by qiv-command.
-  $mode = $1 if $tagspec =~ s@\A\s*([.]|[+]|[+][+])(?:[\s,]+|\Z)@@;
+  $mode = $1 if $tagspec =~ s@\A([.]|[+]|[+][+])(?:[\s,]+|\Z)@@;
   my $tag_mode = $mode eq "." ? "overwrite" : $mode eq "+" ? "merge" : "change";
   my $do_overwrite = ($mode eq ".") + 0;
   my $do_merge = ($mode eq "+") + 0;
@@ -425,43 +471,11 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
       else { die "$0: fatal: unknown flag: $arg\n" }
     }
     die "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
-    my $sharg_re = qr@[^\s()\\\x27"`;&<>*?\[\]$|#]+|\x27(?:[^\x27]++|\x27\\\x27\x27)*+\x27@;
-    my $sharg_decode = sub { my $s = $_[0]; $s =~ s@\x27\\\x27\x27@\x27@g if $s =~ s@\A\x27(.*)\x27@$1@s; $s };
-    my($line, $cfilename, $lineno);
-    while (defined($line = <STDIN>)) {
-      $lineno = $.;
-      if ($line =~ m@^# file: (.*)$@) {  # Output of getfattr.
-        $cfilename = $1
-      } elsif ($line =~ /^([^#\n=:"]+)(?:="(.*?)")?$/) {  # Output of getfattr.
-        my($key, $value) = ($1, $2);
-        die "$0: bad key: $key ($lineno)\n" if $key =~ /["\\]/;
-        die "$0: missing filename for key: $key ($lineno)\n" if
-             !defined($cfilename);
-        $value = "" if !defined($value);
-        apply_tagspec($tagspec_prefix . $value, ($mode or "."), [$cfilename], 1) if $key eq $key0;
-      } elsif ($line =~ m@(.*?):: (.*?)$@) {
-        my($tagspec, $filename) = ($1, $2);
-        $tagspec =~ s@\A\s+@@;
-        $tagspec =~ s@\s+\Z(?!\n)@@;
-        apply_tagspec($tagspec_prefix . $tagspec, $mode, [$filename], 1);
-      } elsif ($line =~ m@^#@) {  # Comment.
-      } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+user.mmfs.tags[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*$@o) {
-        my $filename = $sharg_decode->($1);
-        apply_tagspec($tagspec_prefix, ($mode or "."), [$filename], 1);
-      } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+user.mmfs.tags[ \t]+-v[ \t]+($sharg_re)[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*$@o) {
-        my($tagspec, $filename) = ($sharg_decode->($1), $sharg_decode->($2));
-        apply_tagspec($tagspec_prefix . $tagspec, ($mode or "."), [$filename], 1);
-      } elsif ($line =~ m@^format=(?:[^ ]+)(?= )(.*?) f=(.*)$@) {  # mediafileinfo form.
-        my $filename = $2;
-        $line = $1;
-        my $tagspec = $line =~ m@ tags=([^ ]+)@ ? $1 : "";
-        apply_tagspec($tagspec_prefix . $tagspec, $mode, [$filename], 1);
-      } elsif ($line !~ m@\S@) {
-        $cfilename = undef
-      } else {
-        die "$0: fatal: bad tagfile line ($lineno): $line";
-      }
-    }
+    my $process_func = sub {
+      my($filename, $tags, $default_mode) = @_;
+      apply_tagspec($tagspec_prefix . $tags, ($mode or $default_mode), [$filename], 1);
+    };
+    parse_dump(\*STDIN, $process_func);
   }
   print "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
   print "kept tags of $KC file@{[$KC==1?q():q(s)]}\n" if $KC;
