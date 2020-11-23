@@ -831,6 +831,7 @@ Flags:
 --format=colon: Print in the colon format: <tags> :: <filename>
 --format=getfattr : Print the same output as: getfattr -e text
 --format=mfi : Print in the mediafileinfo format.
+--format=filename : Print filename only.
 --stdin : Get filenames from stdin rather than command-line.
 --recursive=yes (default) : Dump directories, recursively.
 --recursive=no : Dump files only.
@@ -853,6 +854,7 @@ It follows symlinks.
     elsif ($arg eq "--format=colon" or $arg eq "--colon") { $format = "colon" }
     elsif ($arg eq "--format=getfattr") { $format = "getfattr" }
     elsif ($arg eq "--format=mfi" or $arg eq "--format=mediafileinfo" or $arg eq "--format=mscan" or $arg eq "--mfi" or $arg eq "--mscan") { $format = "mfi" }
+    elsif ($arg eq "--format=filename") { $format = "filename" }
     elsif ($arg =~ m@\A--format=@) { die "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg eq "--print-empty=yes") { $do_print_empty = 1 }
     elsif ($arg eq "--print-empty=no") { $do_print_empty = 0 }
@@ -877,6 +879,8 @@ It follows symlinks.
       } : ($format eq "colon") ? sub {
         my($tags, $filename) = @_;
         "$tags :: $filename\n"
+      } : ($format eq "filename") ? sub {
+        "$_[1]\n"  # $filename.
       } : ($format eq "getfattr") ? sub {
         my($tags, $filename) = @_;
         # getfattr always omits files without tags (i.e. without the
