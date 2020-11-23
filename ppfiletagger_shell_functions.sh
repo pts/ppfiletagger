@@ -869,7 +869,69 @@ my $format_usage =
 --format=filename : Print filename only.
 --format=tags : Print tags (including v:...) encountered (deduplicated).";
 
-# --- _mmfs_dump : xattr get_format_func
+# --- find_matches
+
+sub find_matches($$$$$$) {
+  my($format_func, $match_func, $action, $printfn, $is_recursive, $is_stdin) = @_;
+  #print "to these files:\n";
+  my $process_file = sub {  # ($).
+    my $fn0 = $_[0];
+    #print "  $fn0\n";
+    if (!-f($fn0)) {
+      my $msg = -e(_) ? "not a file" : "missing";
+      print STDERR "error: $msg: $fn0\n"; $EC++; return;
+    }
+    if ($fn0 =~ y@\n@@) {
+      print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; $EC++; return
+    }
+    my $tags = $xattr_api->{getxattr}->($fn0, $key0);
+    if (!defined($tags) and !$!{$ENOATTR}) {
+      print STDERR "error: $fn0: $!\n"; $EC++; return
+    }
+    $tags = "" if !defined($tags);
+    ++$C;
+    if ($match_func->($fn0, $tags)) {
+      $tags =~ s@[\s,]+@ @g;  # E.g. get rid of newlines for --format=colon.
+      $tags =~ s@\A +@@; $tags =~ s@ +\Z(?!\n)@@;
+      ++$HC if length($tags);
+      print $format_func->($tags, defined($printfn) ? $printfn : $fn0);
+    }
+  };
+  my $process_xdir; $process_xdir = sub {  # ($).
+    my $fn0 = $_[0];
+    return $process_file->($fn0) if !-d($fn0);
+    my $d;
+    if (!opendir($d, $fn0)) {
+      print STDERR "error: opendir: $fn0: $!\n"; $EC++; return
+    }
+    for my $entry (sort(readdir($d))) {
+      next if $entry eq "." or $entry eq "..";
+      $process_xdir->("$fn0/$entry");
+    }
+    die if !closedir($d);
+  };
+  my $process_func = $is_recursive ? $process_xdir : $process_file;
+  if ($is_stdin) {
+    my $f;
+    my $fn0;
+    while (defined($fn0 = <STDIN>)) {
+      chomp($fn0);
+      $process_func->($fn0);
+    }
+  } else {
+    for my $fn0 (@ARGV) {
+      $process_func->($fn0);
+    }
+  }
+  # We print these messages to STDERR (rather than STDOUT starting with `# `),
+  # because some tools do not support extra lines, e.g. `setfattr --restore
+  # <tagfile>`, which restores based on `_mmfs_dump --forgat=getfattr ... >
+  # <tagfile>` does not support comments starting with `# `.
+  print STDERR "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
+  print STDERR "info: $action tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
+}
+
+# --- _mmfs_dump : xattr get_format_func find_matches
 
 #** Example: _copyattr() { _mmfs_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne "print if s@^rm -f @_copyattr @ and s@ #, keep @ @" >_d.sh; source _d.sh | sh
 sub _mmfs_dump {
@@ -902,9 +964,9 @@ It follows symlinks.
     elsif ($arg =~ m@\A--format=(.*)@s) { $format_func = get_format_func($1, 1) }
     elsif ($arg eq "--print-empty=yes") { $do_print_empty = 1 }
     elsif ($arg eq "--print-empty=no") { $do_print_empty = 0 }
+    elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg eq "--recursive=yes") { $is_recursive = 1 }
     elsif ($arg eq "--recursive=no") { $is_recursive = 0 }
-    elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg =~ m@\A--printfn=(.*)@s) { $printfn = $1 }
     else { die "$0: fatal: unknown flag: $arg\n" }
   }
@@ -914,65 +976,10 @@ It follows symlinks.
     splice(@ARGV, 0, $i);
   }
   $format_func = get_format_func($format_func, 1) if !ref($format_func);
-
-  #print "to these files:\n";
-  my $process_file = sub {  # ($).
-    my $fn0 = $_[0];
-    #print "  $fn0\n";
-    if (!-f($fn0)) {
-      my $msg = -e(_) ? "not a file" : "missing";
-      print STDERR "error: $msg: $fn0\n"; $EC++; return;
-    }
-    if ($fn0 =~ y@\n@@) {
-      print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; $EC++; return
-    }
-    my $tags = $xattr_api->{getxattr}->($fn0, $key0);
-    if (!defined($tags) and !$!{$ENOATTR}) {
-      print STDERR "error: $fn0: $!\n"; $EC++; return
-    }
-    $tags = "" if !defined($tags);
-    $tags =~ s@[\s,]+@ @g;  # E.g. get rid of newlines for --format=colon.
-    $tags =~ s@\A +@@; $tags =~ s@ +\Z(?!\n)@@;
-    ++$C;
-    if (length($tags) or $do_print_empty) {
-      ++$HC if length($tags);
-      print $format_func->($tags, defined($printfn) ? $printfn : $fn0);
-      #$tags = ":none" if !length($tags); print "    $tags\n";
-    }
-  };
-  my $process_xdir; $process_xdir = sub {  # ($).
-    my $fn0 = $_[0];
-    return $process_file->($fn0) if !-d($fn0);
-    my $d;
-    if (!opendir($d, $fn0)) {
-      print STDERR "error: opendir: $fn0: $!\n"; $EC++; return
-    }
-    for my $entry (sort(readdir($d))) {
-      next if $entry eq "." or $entry eq "..";
-      $process_xdir->("$fn0/$entry");
-    }
-    die if !closedir($d);
-  };
-  my $process_func = $is_recursive ? $process_xdir : $process_file;
-  if ($is_stdin) {
-    my $f;
-    my $fn0;
-    while (defined($fn0 = <STDIN>)) {
-      chomp($fn0);
-      $process_func->($fn0);
-    }
-  } else {
-    for my $fn0 (@ARGV) {
-      $process_func->($fn0);
-    }
-  }
-
-  # We print these messages to STDERR (rather than STDOUT starting with `# `),
-  # because some tools do not support extra lines, e.g. `setfattr --restore
-  # <tagfile>`, which restores based on `_mmfs_dump --forgat=getfattr ... >
-  # <tagfile>` does not support comments starting with `# `.
-  print STDERR "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
-  print STDERR "info: shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
+  my $match_func = $do_print_empty ?
+      sub { 1 } :
+      sub { my $tags = $_[1]; $tags =~ m@[^\s,]@ };  # my($fn0, $tags) = @_;
+  find_matches($format_func, $match_func, "dumped", $printfn, $is_recursive, $is_stdin);
 }
 
 # --- _mmfs_fixprincipal
