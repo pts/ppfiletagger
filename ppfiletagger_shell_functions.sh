@@ -851,7 +851,7 @@ It follows symlinks.
     elsif ($arg eq "--stdin") { $is_stdin = 1 }
     elsif ($arg eq "--format=sh" or $arg eq "--format=setfattr" or $arg eq "--sh") { $format = "sh" }
     elsif ($arg eq "--format=colon" or $arg eq "--colon") { $format = "colon" }
-    elsif ($arg eq "--format=getfattr" or $arg eq "--getfattr") { $format = "getfattr" }
+    elsif ($arg eq "--format=getfattr") { $format = "getfattr" }
     elsif ($arg eq "--format=mfi" or $arg eq "--format=mediafileinfo" or $arg eq "--format=mscan" or $arg eq "--mfi" or $arg eq "--mscan") { $format = "mfi" }
     elsif ($arg =~ m@\A--format=@) { die "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg eq "--print-empty=yes") { $do_print_empty = 1 }
