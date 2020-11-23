@@ -605,11 +605,14 @@ die "$0: shows tags the specified files have
 Usage: $0 [<flag> ...] [<filename> ...]
 Flags:
 --abspath : Display absolute pathname of each matching file.
+--print-empty=yes (default) : Show files without tags.
+--print-empty=no : Hide files without tags.
 --recursive=yes : Show contents of directories, recursively.
 --recursive=no (default) : Show files only.
 --recursive=one : Show contents of specified directories (not recursive).
 --readdir : Legacy alias for --recursive=one
 " if @ARGV and $ARGV[0] eq "--help";
+  my $do_print_empty = 1;
   my $recursive_mode = 0;
   my $do_show_abs_path = 0;
   my $i = 0;
@@ -621,34 +624,39 @@ Flags:
     elsif ($arg eq "--recursive=yes") { $recursive_mode = 2 }
     elsif ($arg eq "--recursive=no") { $recursive_mode = 0 }
     elsif ($arg eq "--recursive=one" or $arg eq "--readdir") { $recursive_mode = 1 }
+    elsif ($arg eq "--print-empty=yes") { $do_print_empty = 1 }
+    elsif ($arg eq "--print-empty=no") { $do_print_empty = 0 }
   }
   splice @ARGV, 0, $i;
   require Cwd if $do_show_abs_path;
   my $process_file = sub {  # ($)
     my $fn0 = $_[0];
     $fn0 =~ s@\A(?:[.]/)+@@;
+    my $fn = $fn0;
     if ($do_show_abs_path) {
-      my $fn = Cwd::abs_path($fn0);
+      $fn = Cwd::abs_path($fn0);
       # This usually happens when $fn0 is a symlink pointing to a nonexisting
       # file.
       if (!defined $fn) {
         print "  $fn0\n    error: abs not found: $!\n"; $EC++; return
       }
-      print "  $fn\n";
-    } else {
-      print "  $fn0\n";
     }
     my $tags = $xattr_api->{getxattr}->($fn0, $key0);
     if (!defined($tags) and !$!{$ENOATTR}) {
-      print "    error: $!\n"; $EC++
+      print "  $fn\n    error: $!\n"; $EC++
     } else {
       $tags = "" if !defined($tags);
+      # TODO(pts): Strip leading spaces, everywhere.
       my @tags = split/\s+/, $tags;
-      my @n_tags = grep { !/^v:/ } @tags;
-      my @v_tags = grep { /^v:/  } @tags;
-      if ($tags ne"") { $HC++ } else { @n_tags=(":none") }
-      print "    @n_tags\n";  $C++;
-      print "    @v_tags\n" if @v_tags;
+      $HC++ if @tags;
+      $C++;
+      if (@tags or $do_print_empty) {
+        my @n_tags = grep { !/^v:/ } @tags;
+        my @v_tags = grep { /^v:/  } @tags;
+        @n_tags=(":none") if !@n_tags;
+        print "  $fn\n    @n_tags\n";
+        print "    @v_tags\n" if @v_tags;
+      }
     }
   };
   my $process_dir; $process_dir = sub {  # ($).
