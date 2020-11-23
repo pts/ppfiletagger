@@ -622,15 +622,15 @@ die "$0: shows tags the specified files have
 Usage: $0 [<flag> ...] [<filename> ...]
 Flags:
 --abspath : Display absolute pathname of each matching file.
---tagquery=:any (default) : Print files with or without tags.
---tagquery=:tagged : Print only files with tags.
---tagquery=:none : Print only files without tags.
---print-empty=yes : Same as --tagquery=:any
---print-empty=no : Same as --tagquery=:tagged
+--tagquery=<tagquerym> : Print files with tags like this. Default: :any
+--print-empty=yes | --any : Same as --tagquery=:any
+--print-empty=no | --tagged : Same as --tagquery=:tagged
+--untagged : Same as --tagquery=:none , prints files without tags.
 --recursive=yes : Show contents of directories, recursively.
 --recursive=no (default) : Show files only.
 --recursive=one : Show contents of specified directories (not recursive).
 --readdir : Legacy alias for --recursive=one
+Supported <tagquerym> values: :any :tagged :none
 " if @ARGV and $ARGV[0] eq "--help";
   my $print_mode = 0;
   my $recursive_mode = 0;
@@ -645,11 +645,13 @@ Flags:
     elsif ($arg eq "--recursive=no") { $recursive_mode = 0 }
     elsif ($arg eq "--recursive=one" or $arg eq "--readdir") { $recursive_mode = 1 }
     elsif ($arg =~ m@\A--recursive=@) { die "$0: fatal: unknown flag value: $arg\n" }
-    elsif ($arg eq "--print-empty=yes" or $arg eq "--tagquery=:any") { $print_mode = 0 }
-    elsif ($arg eq "--print-empty=no" or $arg eq "--tagquery=:tagged" or $arg eq "--tagquery=*") { $print_mode = 1 }
-    elsif ($arg eq "--tagquery=:none" or $arg eq "--tagquery=-*") { $print_mode = -1 }
+    elsif ($arg eq "--print-empty=yes" or $arg eq "--tagquery=:any" or $arg eq "--any") { $print_mode = 0 }
+    elsif ($arg eq "--print-empty=no" or $arg eq "--tagquery=:tagged" or $arg eq "--tagquery=*" or $arg eq "--tagged") { $print_mode = 1 }
+    elsif ($arg eq "--tagquery=:none" or $arg eq "--tagquery=-*" or $arg eq "--untagged") { $print_mode = -1 }
     elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg =~ m@\A--tagquery=@) { die "$0: fatal: unsupported flag value, use find instead: $arg\n" }
+    # TODO(pts): Add --stdin (with filenames), force --recursive=no .
+    else { die "$0: fatal: unknown flag: $arg\n" }
   }
   splice @ARGV, 0, $i;
   require Cwd if $do_show_abs_path;
@@ -736,7 +738,7 @@ Usage: $0 <filename>\n" if @ARGV != 1;
   }
 }
 
-# --- _mmfs_grep : xattr
+# --- tagquery
 
 #** <tagquery> language:
 #** * "foo bar | -baz" means ((foo AND bar) OR NOT baz).
@@ -808,9 +810,12 @@ sub match_tagquery($$) {
   0  # No match.
 }
 
+# --- _mmfs_grep : xattr tagquery
+
 sub _mmfs_grep {
-  die "$0: lists file names matching a tag query
+  die "$0: keeps file names matching a tag query
 Usage: $0 <tagquery>
+Reads filenames from stdin, writes matching the <tagquery> to stdout.
 Example: ls | _mmfs_grep \"+foo -bar baz\"
 " if 1!=@ARGV;
   my $orterms = parse_tagquery($ARGV[0]);
@@ -828,6 +833,10 @@ Example: ls | _mmfs_grep \"+foo -bar baz\"
   }
   print STDERR "warning: had error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
 }
+
+# --- format_filename
+
+my $format_filename = sub { "$_[1]\n" };  # $filename.
 
 # --- get_format_func
 
@@ -869,9 +878,8 @@ sub get_format_func($;$) {
       }
     }
     $result
-  } : ($format eq "filename") ? sub {
-    "$_[1]\n"  # $filename.
-  } : ($format eq "getfattr") ? sub {
+  } : ($format eq "filename") ? $format_filename :
+  ($format eq "getfattr") ? sub {
     my($tags, $filename) = @_;
     # getfattr always omits files without tags (i.e. without the
     # $key0 extended attribute). Use _mmfs_dump --print-empty=no
@@ -897,11 +905,18 @@ my $format_usage =
 --format=filename : Print filename only.
 --format=tags : Print tags (including v:...) encountered (deduplicated).";
 
-# --- find_matches
+# --- find_matches : format_filename
 
 #** @param $_[1] $match_func, takes ->($fn0, $tags), returns bool.
-sub find_matches($$$$$$) {
-  my($format_func, $match_func, $action, $printfn, $is_recursive, $is_stdin) = @_;
+sub find_matches($$$$$) {
+  my($format_func, $match_func, $printfn, $is_recursive, $is_stdin) = @_;
+  if ($match_func == 1) {
+    if ($format_func == $format_filename) {
+      $HC = undef;  # Affects print_find_stats.
+    } else {
+      $match_func = sub { 1 };
+    }
+  }
   $is_recursive = $is_stdin ? 0 : 1 if !defined($is_recursive);
   #print "to these files:\n";
   my $process_file = sub {  # ($).
@@ -913,6 +928,12 @@ sub find_matches($$$$$$) {
     }
     if ($fn0 =~ y@\n@@) {
       print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; $EC++; return
+    }
+    if ($match_func == 1) {
+      ++$C;
+      $fn0 = $printfn if defined($printfn);
+      print "$fn0\n";
+      return
     }
     my $tags = $xattr_api->{getxattr}->($fn0, $key0);
     if (!defined($tags) and !$!{$ENOATTR}) {
@@ -953,13 +974,28 @@ sub find_matches($$$$$$) {
       $process_func->($fn0);
     }
   }
+}
+
+sub print_all_lines() {
+  $HC = undef;
+  local $_;
+  while (<STDIN>) {
+    ++$C;
+    $_ .= "\n" if substr($_, -1) ne "\n";
+    print;
+  }
+}
+
+sub print_find_stats($) {
+  my $action = $_[0];
   # We print these messages to STDERR (rather than STDOUT starting with `# `),
   # because some tools do not support extra lines, e.g. `setfattr --restore
   # <tagfile>`, which restores based on
   # `_mmfs_dump --format=getfattr ... > <tagfile>`
   # does not support comments starting with `# `.
   print STDERR "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
-  print STDERR "info: $action tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
+  my $hcof = defined($HC) ? "$HC of " : "";
+  print STDERR "info: $action tags of $hcof$C file@{[$C==1?q():q(s)]}\n";
 }
 
 # --- _mmfs_dump : xattr get_format_func find_matches
@@ -970,23 +1006,22 @@ sub _mmfs_dump {
 Usage: $0 [<flag> ...] <filename> [...] > <tagfile>
 Flags:
 --printfn=<filename> : In the output, print the specified filename instead.
---tagquery=:any (default) : Print files with or without tags.
---tagquery=:tagged : Print only files with tags.
---tagquery=:none : Print only files without tags.
---print-empty=yes : Same as --tagquery=:any
---print-empty=no : Same as --tagquery=:tagged
+--tagquery=<tagquerym> : Print files with tags like this. Default: :any
+--print-empty=yes | --any : Same as --tagquery=:any
+--print-empty=no | --tagged : Same as --tagquery=:tagged
+--untagged : Same as --tagquery=:none , prints files without tags.
 --stdin : Get filenames from stdin rather than command-line.
 $format_usage
 --recursive=yes (default w/o --stdin) : Dump directories, recursively.
 --recursive=no : Dump files only.
-To apply tags in <tagfile> printed by $0 (any --format=...), run:
+Supported <tagquerym> values: :any :tagged :none
+To apply tags in <tagfile> printed by $0 (multiple --format=...), run:
   _mmfs_tag --stdin --mode=change < <tagfile>
 It follows symlinks.
 " if !@ARGV or $ARGV[0] eq "--help";
   my($printfn);
   my $format_func;
-  my $any_match_func = sub { 1 };
-  my $match_func = $any_match_func;
+  my $match_func = 1;
   my $is_stdin = 0;
   my $is_recursive;
   my $i = 0;
@@ -997,11 +1032,11 @@ It follows symlinks.
     elsif ($arg eq "--stdin") { $is_stdin = 1 }
     elsif ($arg eq "--sh" or $arg eq "--colon" or $arg eq "--mfi" or $arg eq "--mscan") { $format_func = get_format_func(substr($arg, 2), 1) }
     elsif ($arg =~ m@\A--format=(.*)@s) { $format_func = get_format_func($1, 1) }
-    elsif ($arg eq "--print-empty=yes" or $arg eq "--tagquery=:any") { $match_func = $any_match_func }
-    elsif ($arg eq "--print-empty=no" or $arg eq "--tagquery=:tagged" or $arg eq "--tagquery=*") { $match_func = sub { my $tags = $_[1]; $tags =~ m@[^\s,]@ } }
-    elsif ($arg eq "--tagquery=:none" or $arg eq "--tagquery=-*") { $match_func = sub { 0 } }
+    elsif ($arg eq "--print-empty=yes" or $arg eq "--tagquery=:any" or $arg eq "--any") { $match_func = 1 }
+    elsif ($arg eq "--print-empty=no" or $arg eq "--tagquery=:tagged" or $arg eq "--tagquery=*" or $arg eq "--tagged") { $match_func = sub { my $tags = $_[1]; $tags =~ m@[^\s,]@ } }
+    elsif ($arg eq "--tagquery=:none" or $arg eq "--tagquery=-*" or $arg eq "--untagged") { $match_func = sub { my $tags = $_[1]; $tags !~ m@[^\s,]@ } }
     elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
-    elsif ($arg =~ m@\A--tagquery=@) { die "$0: fatal: unsupported flag value: $arg\n" }
+    elsif ($arg =~ m@\A--tagquery=@) { die "$0: fatal: unsupported flag value, use find instead: $arg\n" }
     elsif ($arg eq "--recursive=yes") { $is_recursive = 1 }
     elsif ($arg eq "--recursive=no") { $is_recursive = 0 }
     elsif ($arg =~ m@\A--recursive=@) { die "$0: fatal: unknown flag value: $arg\n" }
@@ -1014,7 +1049,125 @@ It follows symlinks.
     splice(@ARGV, 0, $i);
   }
   $format_func = get_format_func($format_func, 1) if !ref($format_func);
-  find_matches($format_func, $match_func, "dumped", $printfn, $is_recursive, $is_stdin);
+  if ($is_stdin and $match_func == 1 and $format_func == $format_filename and !defined($printfn)) {
+    print_all_lines();
+  } else {
+    find_matches($format_func, $match_func, $printfn, $is_recursive, $is_stdin);
+  }
+  print_find_stats("dumped");
+}
+
+# --- _mmfs_find : xattr get_format_func find_matches parse_dump tagquery
+
+sub tagquery_to_match_func($) {
+  my $tagquery = $_[0];
+  my $match_func = $tagquery eq ":any" ? 1 :
+      ($tagquery eq ":tagged" or $tagquery eq "*") ? sub { my $tags = $_[1]; $tags =~ m@[^\s,]@ } :
+      ($tagquery eq ":none" or $tagquery eq "-*") ? sub { my $tags = $_[1]; $tags !~ m@[^\s,]@ } :
+      undef;
+  if (!defined($match_func)) {
+    my $orterms = parse_tagquery($tagquery);
+    $match_func = sub { my $tags = $_[1]; match_tagquery($tags, $orterms) };
+  }
+  $match_func
+}
+
+my $format_usage_for_find = $format_usage;
+$format_usage_for_find =~ s@\Q (default) @ @g;
+die "$0: assert: missing format default\n" if
+    $format_usage_for_find !~ s@(\n--format=filename) : @$1 (default) : @;
+
+sub _mmfs_find {
+  die "$0: finds matching files, prints list or dump to stdout
+Usage: $0 [<flag> ...] [<tagquery>] [<filename> ...]
+Flags:
+--printfn=<filename> : In the output, print the specified filename instead.
+--tagquery=<tagquery> : Print files with matching tags.
+--print-empty=yes | --any : Same as --tagquery=:any
+--print-empty=no | --tagged : Same as --tagquery=:tagged
+--untagged : Same as --tagquery=:none , prints files without tags.
+--stdin : Get filenames from stdin rather than command-line.
+--stdin-tagfile : Read <tagfile> (as sh, colon, getfattr, mfi) from stdin.
+$format_usage_for_find
+--recursive=yes (default w/o --stdin) : Dump directories, recursively.
+--recursive=no : Dump files only.
+<tagquery> arg must be present iff --tagquery=... (or equivalent) is missing.
+The find command is a generalization of grep and dump.
+The grep <tagquery> command is equivalent to: find --stdin --tagquery=<tagquery>
+The dump ... command is equivalent to: find --format=filename --any ...
+It supports more --tagquery=... values and --stdin-tagfile.
+It follows symlinks.
+" if !@ARGV or $ARGV[0] eq "--help";
+  my($printfn);
+  my $format_func;
+  my $match_func;
+  my $stdin_mode = 0;
+  my $is_recursive;
+  my $i = 0;
+  while ($i < @ARGV) {
+    my $arg = $ARGV[$i++];
+    if ($arg eq "-" or substr($arg, 0, 1) ne "-") { --$i; last }
+    elsif ($arg eq "--") { last }
+    elsif ($arg eq "--stdin") { $stdin_mode = 1 }
+    elsif ($arg eq "--stdin-tagfile" or $arg eq "--stdin-dump") { $stdin_mode = 2 }
+    elsif ($arg eq "--sh" or $arg eq "--colon" or $arg eq "--mfi" or $arg eq "--mscan") { $format_func = get_format_func(substr($arg, 2), 1) }
+    elsif ($arg =~ m@\A--format=(.*)@s) { $format_func = get_format_func($1, 1) }
+    elsif ($arg eq "--print-empty=yes" or $arg eq "--any") { $match_func = 1 }
+    elsif ($arg eq "--print-empty=no" or $arg eq "--tagged") { $match_func = tagquery_to_match_func(":tagged") }
+    elsif ($arg eq "--untagged") { $match_func = tagquery_to_match_func(":none") }
+    elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
+    elsif ($arg =~ m@\A--tagquery=(.*)@s) { $match_func = tagquery_to_match_func($1); }
+    elsif ($arg eq "--recursive=yes") { $is_recursive = 1 }
+    elsif ($arg eq "--recursive=no") { $is_recursive = 0 }
+    elsif ($arg =~ m@\A--recursive=@) { die "$0: fatal: unknown flag value: $arg\n" }
+    elsif ($arg =~ m@\A--printfn=(.*)@s) { $printfn = $1 }
+    else { die "$0: fatal: unknown flag: $arg\n" }
+  }
+  if (!defined($match_func)) {
+    die "$0: fatal: missing <tagquery> argument\n" if $i >= @ARGV;
+    $match_func = tagquery_to_match_func($ARGV[$i++]);
+  }
+  if ($stdin_mode) {
+    die "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
+  } else {
+    splice(@ARGV, 0, $i);
+  }
+  die "$0: fatal: incompatible flags: --stdin-tagfile and --recursive=yes\n" if
+      $stdin_mode == 2 and $is_recursive;
+  $format_func = get_format_func(($format_func or "filename"), 1) if !ref($format_func);
+  if ($stdin_mode == 2) {
+    my $process_func;
+    if ($match_func == 1) {
+      if ($format_func == $format_filename and !defined($printfn)) {
+        $HC = undef;  # Affects print_find_stats.
+        $process_func = sub {  # ($$$).
+          my $fn0 = $_[0];
+          ++$C;
+          print "$fn0\n";
+        }
+      } else {
+        $match_func = sub { 1 };
+      }
+    }
+    # TODO(pts): Speed it up for --format=mfi input and single-tag matching.
+    $process_func = sub {  # ($$$).
+      my($fn0, $tags, $default_mode) = @_;
+      # The following code is duplicate from find_matches.
+      ++$C;
+      if ($match_func->($fn0, $tags)) {
+        $tags =~ s@[\s,]+@ @g;  # E.g. get rid of newlines for --format=colon.
+        $tags =~ s@\A +@@; $tags =~ s@ +\Z(?!\n)@@;
+        ++$HC if length($tags);
+        print $format_func->($tags, defined($printfn) ? $printfn : $fn0);
+      }
+    } if !defined($process_func);
+    parse_dump(\*STDIN, $process_func);
+  } elsif ($stdin_mode == 1 and $match_func == 1 and $format_func == $format_filename and !defined($printfn)) {
+    print_all_lines();
+  } else {
+    find_matches($format_func, $match_func, $printfn, $is_recursive, $stdin_mode);
+  }
+  print_find_stats("found");
 }
 
 # --- _mmfs_fixprincipal
