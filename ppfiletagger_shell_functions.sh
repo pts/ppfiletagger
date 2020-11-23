@@ -647,20 +647,20 @@ Flags:
     }
   };
   if ($do_readdir) {
-    for my $arg (@ARGV) {
-      if (-d $arg) {
+    for my $fn0 (@ARGV) {
+      if (-d($fn0)) {
         my $d;
-        die if !opendir $d, $arg;
-        #my $entry;
-        #while (defined($entry = readdir($d))) {...}
+        if (!opendir($d, $fn0)) {
+          print "  $fn0\n    error: opendir: $!\n"; $EC++; next
+        }
         for my $entry (sort readdir($d)) {
           next if $entry eq "." or $entry eq "..";
           # TODO(pts): Do it recursively.
-          $process_file->("$arg/$entry");
+          $process_file->("$fn0/$entry");
         }
-        die if !closedir $d;
+        die if !closedir($d);
       } else {
-        $process_file->($arg);
+        $process_file->($fn0);
       }
     }
   } else {
