@@ -23,7 +23,16 @@ my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
 
 sub get_archname() {
   # This is still slow: return (eval { require Config; die if !%Config::Config; $Config::Config{archname} } or "");
-  for my $dir (@INC) { my $fn = "$dir/Config.pm"; if (open(my($f), "<", $fn)) { my $S = join("", <$f>); close($f); return $1 if $S =~ m@\n[ \t]+archname[ \t]*=>[ \t]*[\x27"]([^-\x27"\\]+-)@; last } } ""
+  for my $dir (@INC) {
+    my $fn = "$dir/Config.pm";
+    if (open(my($f), "<", $fn)) {
+      my $S = join("", <$f>);
+      close($f);
+      return lc($1) if $S =~ m@\n[ \t]+archname[ \t]*=>[ \t]*[\x27"]([^-\x27"\\]+-)@;
+      last
+    }
+  }
+  ""
 }
 sub get_xattr_syscalls() {
   if ($^O eq "linux") {
@@ -36,7 +45,7 @@ sub get_xattr_syscalls() {
   }
   # This works on Linux, but `require "syscall.ph" is quite slow.
   my @result = eval { package syscall; require "syscall.ph"; &syscall::SYS_getxattr, &syscall::SYS_removexattr, &syscall::SYS_setxattr };
-  die "fatal: setxattr and other syscalls not available\n" if @result != 3;
+  die "fatal: setxattr or similar syscalls not available\n" if @result != 3;
   @result
 }
 my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr) = get_xattr_syscalls();
