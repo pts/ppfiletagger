@@ -600,17 +600,25 @@ Usage: $0 <filename1> <filename2>
 #** It works for weird filenames (containing e.g. " " or "\n"), too
 #** SUXX: prompt questions may not contain macros
 #** SUXX: no way to signal an error
-#** @example _mmfs_show file1 file2 ...
 sub _mmfs_show {
   require Cwd;
   my $do_show_abs_path = 0;
   my $do_readdir = 0;
-  if (@ARGV and $ARGV[0] eq "--abspath") { $do_show_abs_path = 1; shift @ARGV }
-  if (@ARGV and $ARGV[0] eq "--readdir") { $do_readdir = 1; shift @ARGV }
 die "$0: shows tags the specified files have
-Usage: $0 [<filename> ...]
+Usage: $0 [<flag> ...] [<filename> ...]
+Flags:
+--abspath : Display absolute pathname of each matching file.
+--readdir : Lists contents of specified directories (not recursive).
 " if @ARGV and $ARGV[0] eq "--help";
-  if (@ARGV and $ARGV[0] eq "--") { shift @ARGV }
+  my $i = 0;
+  while ($i < @ARGV) {
+    my $arg = $ARGV[$i++];
+    if ($arg eq "-" or substr($arg, 0, 1) ne "-") { --$i; last }
+    elsif ($arg eq "--") { last }
+    elsif ($arg eq "--abspath") { $do_show_abs_path = 1 }
+    elsif ($arg eq "--readdir") { $do_readdir = 1 }
+  }
+  splice @ARGV, 0, $i;
   my $process_file = sub {  # ($)
     my $fn0 = $_[0];
     $fn0 =~ s@\A(?:[.]/)+@@;
