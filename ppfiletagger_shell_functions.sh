@@ -685,22 +685,25 @@ Usage: $0 <filename>\n" if @ARGV != 1;
 
 # --- _mmfs_grep : xattr
 
-#** @example ls | _mmfs_grep "+foo -bar baz"  # anything with foo and baz, but without bar
-#** @example ls | _mmfs_grep "* -2004"        # anything with at least one tag, but without 2004
-#** @example ls | _mmfs_grep "*-foo *-bar"    # anything with at least one tag, which is not foo or bar
-#** @example ls | _mmfs_grep "-*"             # anything without tags
-sub _mmfs_grep {
-  die "Usage: $0 <tagquery>\n" if 1!=@ARGV;
+#** <tagquery> language:
+#** * "foo bar | -baz" means ((foo AND bar) OR NOT baz).
+#** * Special words: * -* and *-foo
+#** * +foo -bar baz"  : anything with foo and baz, but without bar
+#** * * -2004"        : anything with at least one tag, but without 2004
+#** * *-foo *-bar"    : anything with at least one tag, which is not foo or bar
+#** * -*"             : anything without tags
+#** * See docs for more info.
+#** @param $_[0] $tagquery String containing a <tagquery>.
+#** @return \@orterms, a list of [$needplus, $needminus, $ignore].
+sub parse_tagquery($) {
+  my $tagquery = $_[0];
   my @orterms;
-  # Query language:
-  # * "foo bar | -baz" means ((foo AND bar) OR NOT baz).
-  # * Special words: * -* and *-foo
-  my $query = $ARGV[0];
-  die "_mmfs_grep: parentheses not supported in query: $query\n" if $query =~ m@[()]@;
-  for my $spec (split /\|/, $query) {
-    pos($spec) = 0;
+  die "$0: fatal: parentheses not supported in <tagquery>: $tagquery\n" if $tagquery =~ m@[()]@;
+  die "$0: fatal: quotes not supported in <tagquery>: $tagquery\n" if $tagquery =~ m@[\x27"]@;
+  for my $termlist (split /\|/, $tagquery) {
+    pos($termlist) = 0;
     my($needplus, $needminus, $ignore) = ({}, {}, {});
-    while ($spec=~/(\S+)/g) {
+    while ($termlist=~/(\S+)/g) {
       my $tagv = $1;
       if ($tagv =~ s@^-@@) {
         $needminus->{$tagv} = 1;
@@ -712,13 +715,43 @@ sub _mmfs_grep {
         $needplus->{$tagv} = 1;
         next if $tagv eq "*";
       }
-      die "_mmfs_grep: invalid tagv syntax: $tagv\n" if $tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@;
+      die "$0: fatal: invalid tagv syntax: $tagv\n" if $tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@;
     }
-    die "_mmfs_grep: empty spec in query: $spec\n" if !%$needplus and !%$needminus;
+    die "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !%$needplus and !%$needminus;
     #print STDERR "info: query spec needplus=(@{[sort keys%$needplus]}) needminus=(@{[sort keys%$needminus]}) ignore=(@{[sort keys%$ignore]})\n";
     push @orterms, [$needplus, $needminus, $ignore];
   }
-  die "_mmfs_grep: empty query\n" if !@orterms;
+  die "$0: fatal: empty <tagquery>\n" if !@orterms;
+  \@orterms
+}
+
+sub match_tagquery($$) {
+  my($tags, $orterms) = @_;
+  my $ok_p = 0;
+  for my $term (@$orterms) {
+    my($needplus, $needminus, $ignore) = @$term;
+    my %np=%$needplus;
+    #print "($tags)\n";
+    my $tagc=0;
+    pos($tags) = 0;
+    while ($tags=~/([^\s,]+)/g) {
+      my $tag=$1;
+      $tagc++ if !$ignore->{$tag};
+      delete $np{$tag};
+      if ($needminus->{$tag} or $needminus->{"*"}) { %np = (1 => 1); last }
+    }
+    delete $np{"*"} if $tagc>0;
+    return 1 if !%np;  # Found match in current orterm.
+  }
+  0  # No match.
+}
+
+sub _mmfs_grep {
+  die "$0: lists file names matching a tag query
+Usage: $0 <tagquery>
+Example: ls | _mmfs_grep \"+foo -bar baz\"
+" if 1!=@ARGV;
+  my $orterms = parse_tagquery($ARGV[0]);
   my $fn0;
   while (defined($fn0=<STDIN>)) {
     chomp $fn0;
@@ -728,23 +761,7 @@ sub _mmfs_grep {
       print STDERR "error: $fn0: $!\n"; $EC++
     } else {
       $tags = "" if !defined($tags);
-      my $ok_p = 0;
-      for my $term (@orterms) {
-        my($needplus, $needminus, $ignore) = @$term;
-        my %N=%$needplus;
-        #print "($tags)\n";
-        my $tagc=0;
-        pos($tags) = 0;
-        while ($tags=~/(\S+)/g) {
-          my $tag=$1;
-          $tagc++ if !$ignore->{$tag};
-          delete $N{$tag};
-          if ($needminus->{$tag} or $needminus->{"*"}) { %N = (1 => 1); last }
-        }
-        delete $N{"*"} if $tagc>0;
-        if (!%N) { $ok_p = 1; last }
-      }
-      print "$fn0\n" if $ok_p;
+      print "$fn0\n" if match_tagquery($tags, $orterms);
     }
   }
   print STDERR "warning: had error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
