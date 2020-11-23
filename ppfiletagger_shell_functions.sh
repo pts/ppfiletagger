@@ -280,8 +280,13 @@ sub apply_tagspec($$$$) {
       print "    unchanged by tagspec: $tagspecmsg\n" if $is_verbose;
       $KC++; next FN0
     }
-    if (not -f $fn0) {
-      print "    error: not a file\n"; $EC++; next FN0
+    if (!-f($fn0)) {
+      if (!-e(_)) {
+        print "    error: missing\n";
+      } else {
+        print "    error: not a file\n";
+      }
+      $EC++; next FN0
     }
 
     my $got;
@@ -632,6 +637,10 @@ Flags:
   my $process_file = sub {  # ($)
     my $fn0 = $_[0];
     $fn0 =~ s@\A(?:[.]/)+@@;
+    if (!-f($fn0)) {
+      my $msg = -e(_) ? "not a file" : "missing";
+      print "  $fn0\n    error: $msg\n"; $EC++; return
+    }
     my $fn = $fn0;
     if ($do_show_abs_path) {
       $fn = Cwd::abs_path($fn0);
@@ -890,7 +899,10 @@ It follows symlinks.
   my $dumpf = sub {  # ($)
     my $fn0 = $_[0];
     #print "  $fn0\n";
-    return if !-f($fn0);
+    if (!-f($fn0)) {
+      my $msg = -e(_) ? "not a file" : "missing";
+      print STDERR "error: $msg: $fn0\n"; $EC++; return;
+    }
     if ($fn0 =~ y@\n@@) {
       print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; $EC++; return
     }
