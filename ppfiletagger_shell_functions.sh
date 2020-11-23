@@ -701,7 +701,7 @@ sub _mmfs_grep {
   die "_mmfs_grep: parentheses not supported in query: $query\n" if $query =~ m@[()]@;
   for my $spec (split /\|/, $query) {
     pos($spec) = 0;
-    my ($needplus, $needminus, $ignore) = ({}, {}, {});
+    my($needplus, $needminus, $ignore) = ({}, {}, {});
     while ($spec=~/(\S+)/g) {
       my $tagv = $1;
       if ($tagv =~ s@^-@@) {
@@ -732,7 +732,7 @@ sub _mmfs_grep {
       $tags = "" if !defined($tags);
       my $ok_p = 0;
       for my $term (@orterms) {
-        my ($needplus, $needminus, $ignore) = @$term;
+        my($needplus, $needminus, $ignore) = @$term;
         my %N=%$needplus;
         #print "($tags)\n";
         my $tagc=0;
@@ -994,7 +994,7 @@ if (!@ARGV or $ARGV[0] eq "--help") {
     }
     my @src = (substr($_, 0, $partps[1]));
     for (my $i = 2; $i < @partps; $i += 2) {  # Prepare only used code parts.
-      my ($part, $pos, $endpos) = ($partps[$i - 2], $partps[$i - 1], $partps[$i + 1]);
+      my($part, $pos, $endpos) = ($partps[$i - 2], $partps[$i - 1], $partps[$i + 1]);
       my $partsrc = substr($_, $pos, $endpos - $pos);
       $partsrc =~ y@\n@@cd if !exists($done{$part});
       push @src, $partsrc;
