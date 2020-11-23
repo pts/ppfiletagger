@@ -641,8 +641,10 @@ Flags:
     elsif ($arg eq "--recursive=yes") { $recursive_mode = 2 }
     elsif ($arg eq "--recursive=no") { $recursive_mode = 0 }
     elsif ($arg eq "--recursive=one" or $arg eq "--readdir") { $recursive_mode = 1 }
+    elsif ($arg =~ m@\A--recursive=@) { die "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg eq "--print-empty=yes") { $do_print_empty = 1 }
     elsif ($arg eq "--print-empty=no") { $do_print_empty = 0 }
+    elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
   }
   splice @ARGV, 0, $i;
   require Cwd if $do_show_abs_path;
@@ -997,6 +999,7 @@ It follows symlinks.
     elsif ($arg =~ m@\A--tagquery=@) { die "$0: fatal: unsupported flag value: $arg\n" }
     elsif ($arg eq "--recursive=yes") { $is_recursive = 1 }
     elsif ($arg eq "--recursive=no") { $is_recursive = 0 }
+    elsif ($arg =~ m@\A--recursive=@) { die "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg =~ m@\A--printfn=(.*)@s) { $printfn = $1 }
     else { die "$0: fatal: unknown flag: $arg\n" }
   }
