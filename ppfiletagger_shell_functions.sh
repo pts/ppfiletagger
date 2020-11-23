@@ -102,14 +102,32 @@ sub get_xattr_api() {
       my $got = syscall($SYS_setxattr, $filename, $key, $value, length($value), 0);
       (defined($got) and $got == 0) ? 1 : undef
     };
-    # There is a reiserfs bug on Linux 2.6.31: cannot reliably set the
-    # extended attribute to a shorter value. Workaround: set it to the empty
-    # value (or remove it) first.
-    #
-    # TODO(pts): Enable the workaround for Linux <3.0 only.
-    $xattr_api->{need_setxattrw} = 1;
+  } else {
+    eval { require File::ExtAttr };  # https://metacpan.org/pod/File::ExtAttr
+    die "fatal: please install Perl module File::ExtAttr\n" if $@;
+    if (!defined(&File::ExtAttr::openhandle)) {  # Bugfix for File::ExtAttr 1.09.
+      eval { package File::ExtAttr; use Scalar::Util qw(openhandle) };
+      die $@ if $@;
+    }
+    my $fix_key = sub {
+      my $key = $_[1];
+      die "fatal: invalid xattr key, must start with user.: $key\n" if
+          $key !~ s@\A\Quser.@@;
+      splice @_, 1, 1, $key;
+      @_
+    };
+    $xattr_api->{getxattr} =    sub { File::ExtAttr::getfattr($fix_key->(@_)) } if defined(&File::ExtAttr::getfattr);
+    $xattr_api->{removexattr} = sub { File::ExtAttr::delfattr($fix_key->(@_)) } if defined(&File::ExtAttr::delfattr);
+    $xattr_api->{setxattr} =    sub { File::ExtAttr::setfattr($fix_key->(@_)) } if defined(&File::ExtAttr::setfattr);
   }
-  die "fatal: xattr not available\n" if !defined($xattr_api->{setxattr});
+  die "fatal: xattr not available\n" if
+      !defined($xattr_api->{getxattr}) or !defined($xattr_api->{removexattr}) or !defined($xattr_api->{setxattr});
+  # There is a reiserfs bug on Linux 2.6.31: cannot reliably set the
+  # extended attribute to a shorter value. Workaround: set it to the empty
+  # value (or remove it) first.
+  #
+  # TODO(pts): Enable the workaround for Linux <3.0 only.
+  $xattr_api->{need_setxattrw} = 1 if $^O eq "linux";
   $xattr_api
 }
 
