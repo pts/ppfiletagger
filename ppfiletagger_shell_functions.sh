@@ -625,7 +625,7 @@ See above for the format of --stdin.
 
 #** See docs for using this command from Midnight Commander (mc) menu.
 sub _cmd_show {
-die1 "$0: shows tags the specified files have
+die1 "$0: shows tags the specified files have, interactively
 Usage: $0 [<flag> ...] [<filename> ...]
 Flags:
 --abspath : Display absolute pathname of each matching file.
@@ -637,16 +637,19 @@ Flags:
 --recursive=no (default) : Show files only.
 --recursive=one : Show contents of specified directories (not recursive).
 --readdir : Legacy alias for --recursive=one
+--stdin : Get filenames from stdin rather than command-line.
 Supported <tagquerym> values: :any :tagged :none
 " if @ARGV and $ARGV[0] eq "--help";
   my $print_mode = 0;
   my $recursive_mode = 0;
   my $do_show_abs_path = 0;
+  my $stdin_mode = 0;
   my $i = 0;
   while ($i < @ARGV) {
     my $arg = $ARGV[$i++];
     if ($arg eq "-" or substr($arg, 0, 1) ne "-") { --$i; last }
     elsif ($arg eq "--") { last }
+    elsif ($arg eq "--stdin") { $stdin_mode = 1 }
     elsif ($arg eq "--abspath") { $do_show_abs_path = 1 }
     elsif ($arg eq "--recursive=yes") { $recursive_mode = 2 }
     elsif ($arg eq "--recursive=no") { $recursive_mode = 0 }
@@ -657,10 +660,13 @@ Supported <tagquerym> values: :any :tagged :none
     elsif ($arg eq "--tagquery=:none" or $arg eq "--tagquery=-*" or $arg eq "--untagged") { $print_mode = -1 }
     elsif ($arg =~ m@\A--print-empty=@) { die1 "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg =~ m@\A--tagquery=@) { die1 "$0: fatal: unsupported flag value, use find instead: $arg\n" }
-    # TODO(pts): Add --stdin (with filenames), force --recursive=no .
     else { die1 "$0: fatal: unknown flag: $arg\n" }
   }
-  splice @ARGV, 0, $i;
+  if ($stdin_mode) {
+    die1 "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
+  } else {
+    splice(@ARGV, 0, $i);
+  }
   require Cwd if $do_show_abs_path;
   my $process_file = sub {  # ($)
     my $fn0 = $_[0];
@@ -713,11 +719,15 @@ Supported <tagquerym> values: :any :tagged :none
     }
     die if !closedir($d);
   };
-  for my $fn0 (@ARGV) {
-    if ($recursive_mode and -d($fn0)) {
-      $process_dir->($fn0);
-    } else {
-      $process_file->($fn0);
+  if ($stdin_mode) {
+    my $fn0;
+    while (defined($fn0 = <STDIN>)) {
+      die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
+      (($recursive_mode and -d($fn0)) ? $process_dir : $process_file)->($fn0);
+    }
+  } else {
+    for my $fn0 (@ARGV) {
+      (($recursive_mode and -d($fn0)) ? $process_dir : $process_file)->($fn0);
     }
   }
   print "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
