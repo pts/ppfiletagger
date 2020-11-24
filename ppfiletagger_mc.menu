@@ -1,16 +1,13 @@
 # We use %s within <<'END' so that we are able to pass a huge number of
-# filenames to the shell function _mmfs, avoiding the Argument list too long
-# (E2BIG) error execve(2) would return.
+# filenames, avoiding the `Argument list too long' (E2BIG) error execve(2)
+# would return.
 
 t       Tag files
-	exec bash 3>&0 <<'END'
-	. "$HOME"/zsh/ppfiletagger_shell_functions.sh --load &&
-	cd %d && _mmfs --mcmenu tag %{What tags to add or -remove} %s <&3
+	exec perl -x "$HOME"/zsh/ppfiletagger_shell_functions.sh --sa 9>&0 <<'END'
+	+ : - --mcmenu --cd=%d tag -- %{What tags to add or -remove} %s
 	END
 
 s       Show tags on files
-	exec bash 3>&0 <<'END'
-	. "$HOME"/zsh/ppfiletagger_shell_functions.sh --load &&
-	cd %d && _mmfs --mcmenu show %s <&3
+	exec perl -x "$HOME"/zsh/ppfiletagger_shell_functions.sh --sa 9>&0 <<'END'
+	+ : - --mcmenu --cd=%d show -- %s
 	END
-

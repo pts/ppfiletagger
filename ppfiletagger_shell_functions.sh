@@ -1,15 +1,19 @@
 #!/bin/sh --
-unset _mmfs_PERLCODE; _mmfs_PERLCODE='
-#!perl  # http://pts.github.io/Long.Perl.Header/
-$0="_mmfs";eval("\n\n\n\n".<<'__END__');die$@if$@;__END__
+eval 'PERL_BADLANG=x;export PERL_BADLANG;exec perl -x "$0" "$@";exit 1'
+#!perl  # Start marker used by perl -x.
++0 if 0;eval("\n\n\n\n".<<'__END__');die$@if$@;__END__
 BEGIN { $^W = 1; $| = 1 } use integer; use strict;
 BEGIN { $ENV{LC_MESSAGES} = $ENV{LANGUAGE} = "C" }  # Make $! English.
 my($C, $KC, $EC, $HC) = (0, 0, 0, 0);
 $_ = "\n\n\n\n\n\n\n\n" . <<'END';
 
 #
-# ppfiletagger_shell_functions.sh for bash and zsh
+# ppfiletagger_shell_functions.sh
 # by pts@fazekas.hu at Sat Jan 20 22:29:43 CET 2007
+#
+# For unlimited argv support, load the shell functions as:
+# eval "$(perl -x .../ppfiletagger_shell_functions.sh --load)"
+# , and then call _mmfs etc. interactively.
 #
 # TODO(pts): Rename mmfs, movemetafs, ppfiletagger.
 #
@@ -71,7 +75,7 @@ sub get_linux_xattr_syscalls() {
   # This works on Linux, but `require "syscall.ph" is quite slow.
   # It does not work in FreeBSD, because FreeBSD has extattr_set_file(2) etc.
   my @result = eval { package syscall; require "syscall.ph"; &syscall::SYS_getxattr, &syscall::SYS_removexattr, &syscall::SYS_setxattr, &syscall::SYS_uname };
-  die "fatal: setxattr or similar syscalls not available\n" if @result != 4;
+  die1 "$0: fatal: setxattr or similar syscalls not available\n" if @result != 4;
   @result
 }
 
@@ -107,9 +111,9 @@ sub get_xattr_api() {
     };
     my $utsname = "\0" x 390;
     my $got = syscall($SYS_uname, $utsname);
-    die "fatal: uname: $!\n" if !defined($got) or $got != 0;
+    die1 "$0: fatal: uname: $!\n" if !defined($got) or $got != 0;
     # my($sys, $node, $release, $version, $machine, $domain) = unpack("Z65Z65Z65Z65Z65Z65", $utsname);
-    # die "($sys)($node)($release)($version)($machine)($domain)\n";
+    # die1 "($sys)($node)($release)($version)($machine)($domain)\n";
     # Typical $release is: 4.9.0-6-amd64.
     my $release = unpack("x65x65Z65", $utsname);
     # There is a reiserfs bug on Linux 2.6.31: cannot reliably set the
@@ -118,10 +122,10 @@ sub get_xattr_api() {
     $xattr_api->{need_setxattrw} = 1 if $release !~ m@\A(\d+)[.]@ or $1 < 3;
   } else {
     eval { require File::ExtAttr };  # https://metacpan.org/pod/File::ExtAttr
-    die "fatal: please install Perl module File::ExtAttr\n" if $@;
+    die1 "$0: fatal: please install Perl module File::ExtAttr\n" if $@;
     my $fix_key = sub {
       my $key = $_[1];
-      die "fatal: invalid xattr key, must start with user.: $key\n" if
+      die1 "$0: fatal: invalid xattr key, must start with user.: $key\n" if
           $key !~ s@\A\Quser.@@;
       splice @_, 1, 1, $key;
       @_
@@ -131,7 +135,7 @@ sub get_xattr_api() {
     $xattr_api->{setxattr} =    sub { File::ExtAttr::setfattr($fix_key->(@_)) } if defined(&File::ExtAttr::setfattr);
     $xattr_api->{need_setxattrw} = 1 if $^O eq "linux";
   }
-  die "fatal: xattr not available\n" if
+  die1 "$0: fatal: xattr not available\n" if
       !defined($xattr_api->{getxattr}) or !defined($xattr_api->{removexattr}) or !defined($xattr_api->{setxattr});
   $xattr_api
 }
@@ -140,8 +144,8 @@ my $xattr_api = get_xattr_api();
 
 sub setxattr_safe($$$$$) {
   my($filename, $key, $old_value, $value, $do_remove_if_empty) = @_;
-  die "$0: assert: undefined old value for xattr key: $key\n" if !defined($old_value);
-  die "$0: assert: undefined value for xattr key: $key\n" if !defined($value);
+  die1 "$0: assert: undefined old value for xattr key: $key\n" if !defined($old_value);
+  die1 "$0: assert: undefined value for xattr key: $key\n" if !defined($value);
   return $xattr_api->{removexattr}->($filename, $key) if $do_remove_if_empty and !length($value);
   if ($xattr_api->{need_setxattrw}) {
     if (length($value) > 0 and !defined($old_value)) {
@@ -169,7 +173,7 @@ sub read_tags_file(;$) {
   my $tags_fn = $_[0];
   $tags_fn = "$ENV{HOME}/.ppfiletagger_tags" if !defined($tags_fn);
   my $F;
-  die "$0: fatal: error opening tags file: $tags_fn: $!\n" if
+  die1 "$0: fatal: error opening tags file: $tags_fn: $!\n" if
       !open($F, "<", $tags_fn);
   my $lineno = 0;
   my $tags = {};
@@ -214,8 +218,8 @@ sub parse_dump($$) {
       $cfilename = $1
     } elsif ($line =~ m@^([^#\n=:"]+)(?:="(.*?)")?\n@) {  # Output of getfattr.
       my($key, $value) = ($1, $2);
-      die "$0: bad key: $key ($lineno)\n" if $key =~ m@["\\]@;
-      die "$0: missing filename for key: $key ($lineno)\n" if
+      die1 "$0: fatal: bad key: $key ($lineno)\n" if $key =~ m@["\\]@;
+      die1 "$0: fatal: missing filename for key: $key ($lineno)\n" if
           !defined($cfilename);
       $process_func->($cfilename, $value, ".") if $key eq $key0;
     } elsif ($line =~ m@(.*?):: (.*?)\n@) {
@@ -236,8 +240,8 @@ sub parse_dump($$) {
     } elsif ($line eq "\n") {
       $cfilename = undef
     } else {
-      die "$0: fatal: incomplete tagfile line ($lineno): $line\n" if !chomp($line);
-      die "$0: fatal: bad tagfile line ($lineno): $line\n";
+      die1 "$0: fatal: incomplete tagfile line ($lineno): $line\n" if !chomp($line);
+      die1 "$0: fatal: bad tagfile line ($lineno): $line\n";
     }
   }
 }
@@ -253,7 +257,7 @@ sub apply_tagspec($$$$) {
   $tagspec = "" if !defined($tagspec);
   $tagspec =~ s@\A\s+@@;
   $mode = "++" if !defined($mode) or !length($mode);
-  die "fatal: bad mode: $mode\n" if $mode ne "." and $mode ne "+" and $mode ne "++";
+  die1 "$0: fatal: bad mode: $mode\n" if $mode ne "." and $mode ne "+" and $mode ne "++";
   my @ptags;
   my @mtags;
   my @unknown_tags;
@@ -414,19 +418,17 @@ sub apply_tagspec($$$$) {
 
 sub apply_to_multiple($$) {
   my($tagspec, $filenames) = @_;
+  $tagspec =~ s@\A\Q./@@;  # Prepended by Midnight Commander (mc).
   my($tag_mode, $tagspecmsg) = apply_tagspec($tagspec, "++", $filenames, 0);
   my $action = $tag_mode eq "overwrite" ? "overwritten" : $tag_mode eq "merge" ? "merged" : "changed";
   ($action, $tagspecmsg)
 }
 
-#** Adds or removes tags on files.
-#** Midnight Commander menu action implementation for movemetafs (mmfs).
-#** It works for weird filenames (containing e.g. " " or "\n"), too.
-#** SUXX: prompt questions may not contain macros
-#** SUXX: no way to signal an error
+#** See docs for using this command from Midnight Commander (mc) menu.
+#** FYI No way to signal an error to Midight Commander without pausing.
 #** Example: _mmfs_tag "tag1 -tag2 ..." file1 file2 ...    # keep tag3
 sub _mmfs_tag {
-  die "$0: adds or removes tags on files
+  die1 "$0: adds or removes tags on files
 Usage: $0 \x27<tagspec>\x27 [<filename> ...]
     or ls | $0 --stdin <tagspec>
     or $0 --stdin [<flag> ...] < <tagfile>
@@ -449,7 +451,7 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
   if (@ARGV == 2 and $ARGV[0] eq "--stdin" and $ARGV[1] ne "-" and substr($ARGV[1], 0, 2) ne "--") {
     # Read filenames from stdin, apply tags in $ARGV[1];
     my($tagspec, $filenames) = ($ARGV[1], [<STDIN>]);
-    for my $fn0 (@$filenames) { die "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0); }
+    for my $fn0 (@$filenames) { die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0); }
     ($action, $tagspecmsg) = apply_to_multiple($tagspec, $filenames);
   } elsif (!(@ARGV and $ARGV[0] eq "--stdin")) {
     shift(@ARGV) if @ARGV and $ARGV[0] eq "--";
@@ -467,11 +469,11 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
       elsif ($arg eq "--mode=change" or $arg eq "--mode=++") { $mode = "++" }
       elsif ($arg eq "--mode=overwrite" or $arg eq "--mode=set" or $arg eq "--mode=++" or $arg eq "-overwrite" or $arg eq "--set") { $mode = "." }
       elsif ($arg eq "--mode=merge" or $arg eq "--mode=+" or $arg eq "--merge") { $mode = "+" }
-      elsif ($arg =~ m@\A--mode=@) { die "$0: fatal: unknown flag value: $arg\n" }
+      elsif ($arg =~ m@\A--mode=@) { die1 "$0: fatal: unknown flag value: $arg\n" }
       elsif ($arg =~ m@\A--prefix=(.*)@s) { $tagspec_prefix = "$1 " }
-      else { die "$0: fatal: unknown flag: $arg\n" }
+      else { die1 "$0: fatal: unknown flag: $arg\n" }
     }
-    die "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
+    die1 "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
     my $process_func = sub {
       my($filename, $tags, $default_mode) = @_;
       apply_tagspec($tagspec_prefix . $tags, ($mode or $default_mode), [$filename], 1);
@@ -485,11 +487,10 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
 
 # --- _mmfs_unify_tags : xattr
 
-#** Makes both files have the union of the tags.
-#** SUXX: needed 2 runs: modified 32, then 4, then 0 files (maybe because of
-#**       equivalence classes)
+#** TODO(pts): Unify more than 2 files to prevent the needed for 2 runs on
+#**            d.sh: modified 32, then 4, then 0 files.
 sub _mmfs_unify_tags {
-  die "$0: makes both files have to union of tags
+  die1 "$0: makes both files have to union of tags
 Usage: $0 <filename1> <filename2>
     or echo \"... \x27filename1\x27 ... \x27filename2\x27 ...\" ... | $0 --stdin
 " if @ARGV!=2 and @ARGV!=1;
@@ -512,7 +513,7 @@ Usage: $0 <filename1> <filename2>
     my($fn0,$tags,$rmtags)=@_;
     my %rmtags;
     %rmtags=map { $_ => 1 } split(/\s+/, $rmtags) if defined $rmtags;
-    die "error: bad add-tags syntax: $tags\n" if $tags =~ /[+-]/;
+    die1 "$0: error: bad add-tags syntax: $tags\n" if $tags =~ /[+-]/;
     return if $tags !~ /\S/ and !%rmtags;
     #print "  $fn0\n";
     my $tags0 = $xattr_api->{getxattr}->($fn0, $key0);
@@ -527,14 +528,13 @@ Usage: $0 <filename1> <filename2>
     }
     if (%rmtags) {
       my @both_tags = grep { exists $rmtags{$_} } split(/\s+/, $tags);
-      die "error: tags both added and removed: @both_tags\n" if @both_tags;
+      die1 "$0: error: tags both added and removed: @both_tags\n" if @both_tags;
       my $has_rmtag = grep { exists $rmtags{$_} } split(/\s+/, $tags1);
       if ($has_rmtag) {
         $tags1 = join(" ", grep { !exists $rmtags{$_} } split(/\s+/, $tags1));
       }
     }
     $tags1 =~ s@\A\s+@@;
-    die if !%rmtags and length($tags1) < length($tags);  # fail on reiserfs length problem
     if ($tags0 eq $tags1) {
     } elsif (setxattr_safe($fn0, $key0, $tags0, $tags1, 1)) {
       $C++;
@@ -594,9 +594,9 @@ Usage: $0 <filename1> <filename2>
   if (@ARGV==2) {
     unify_tags($ARGV[0], $ARGV[1]);
   } else {
-    die "error: supply filename pairs in STDIN (not a TTY)\n" if -t STDIN;
+    die1 "$0: fatal: supply filename pairs in STDIN (not a TTY)\n" if -t STDIN;
     while (<STDIN>) {
-      die "$0: fatal: incomplete line in unify line: $_\n" if !chomp($_);
+      die1 "$0: fatal: incomplete line in unify line: $_\n" if !chomp($_);
       next if !/\S/ or /^\s*#/;
       my @L;
       while (/\x27((?:[^\x27]+|\x27\\\x27\x27)*)\x27/g) {
@@ -615,12 +615,9 @@ Usage: $0 <filename1> <filename2>
 
 # --- _mmfs_show : xattr
 
-#** Midnight Commander menu action implementation for movemetafs (mmfs).
-#** It works for weird filenames (containing e.g. " " or "\n"), too
-#** SUXX: prompt questions may not contain macros
-#** SUXX: no way to signal an error
+#** See docs for using this command from Midnight Commander (mc) menu.
 sub _mmfs_show {
-die "$0: shows tags the specified files have
+die1 "$0: shows tags the specified files have
 Usage: $0 [<flag> ...] [<filename> ...]
 Flags:
 --abspath : Display absolute pathname of each matching file.
@@ -646,14 +643,14 @@ Supported <tagquerym> values: :any :tagged :none
     elsif ($arg eq "--recursive=yes") { $recursive_mode = 2 }
     elsif ($arg eq "--recursive=no") { $recursive_mode = 0 }
     elsif ($arg eq "--recursive=one" or $arg eq "--readdir") { $recursive_mode = 1 }
-    elsif ($arg =~ m@\A--recursive=@) { die "$0: fatal: unknown flag value: $arg\n" }
+    elsif ($arg =~ m@\A--recursive=@) { die1 "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg eq "--print-empty=yes" or $arg eq "--tagquery=:any" or $arg eq "--any") { $print_mode = 0 }
     elsif ($arg eq "--print-empty=no" or $arg eq "--tagquery=:tagged" or $arg eq "--tagquery=*" or $arg eq "--tagged") { $print_mode = 1 }
     elsif ($arg eq "--tagquery=:none" or $arg eq "--tagquery=-*" or $arg eq "--untagged") { $print_mode = -1 }
-    elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
-    elsif ($arg =~ m@\A--tagquery=@) { die "$0: fatal: unsupported flag value, use find instead: $arg\n" }
+    elsif ($arg =~ m@\A--print-empty=@) { die1 "$0: fatal: unknown flag value: $arg\n" }
+    elsif ($arg =~ m@\A--tagquery=@) { die1 "$0: fatal: unsupported flag value, use find instead: $arg\n" }
     # TODO(pts): Add --stdin (with filenames), force --recursive=no .
-    else { die "$0: fatal: unknown flag: $arg\n" }
+    else { die1 "$0: fatal: unknown flag: $arg\n" }
   }
   splice @ARGV, 0, $i;
   require Cwd if $do_show_abs_path;
@@ -725,7 +722,7 @@ Supported <tagquerym> values: :any :tagged :none
 #** scripting.
 #** It works for weird filenames (containing e.g. " " or "\n"), too.
 sub _mmfs_get_tags {
-  die "$0: displays tags a sigle file has
+  die1 "$0: displays tags a sigle file has
 Usage: $0 <filename>\n" if @ARGV != 1;
   my $fn0 = $ARGV[0];
   my $tags = $xattr_api->{getxattr}->($fn0, $key0);
@@ -755,8 +752,8 @@ Usage: $0 <filename>\n" if @ARGV != 1;
 sub parse_tagquery($) {
   my $tagquery = $_[0];
   my @orterms;
-  die "$0: fatal: parentheses not supported in <tagquery>: $tagquery\n" if $tagquery =~ m@[()]@;
-  die "$0: fatal: quotes not supported in <tagquery>: $tagquery\n" if $tagquery =~ m@[\x27"]@;
+  die1 "$0: fatal: parentheses not supported in <tagquery>: $tagquery\n" if $tagquery =~ m@[()]@;
+  die1 "$0: fatal: quotes not supported in <tagquery>: $tagquery\n" if $tagquery =~ m@[\x27"]@;
   for my $termlist (split /\|/, $tagquery) {
     pos($termlist) = 0;
     my($needplus, $needminus, $ignore) = ({}, {}, {});
@@ -781,13 +778,13 @@ sub parse_tagquery($) {
         $needplus->{$tagv} = 1;
         next if $tagv eq "*";
       }
-      die "$0: fatal: invalid tagv syntax: $tagv\n" if $tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@;
+      die1 "$0: fatal: invalid tagv syntax: $tagv\n" if $tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@;
     }
-    die "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !($had_any or %$needplus or %$needminus);
+    die1 "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !($had_any or %$needplus or %$needminus);
     #print STDERR "info: query spec needplus=(@{[sort keys%$needplus]}) needminus=(@{[sort keys%$needminus]}) ignore=(@{[sort keys%$ignore]})\n";
     push @orterms, [$needplus, $needminus, $ignore];
   }
-  die "$0: fatal: empty <tagquery>\n" if !@orterms;
+  die1 "$0: fatal: empty <tagquery>\n" if !@orterms;
   \@orterms
 }
 
@@ -815,7 +812,7 @@ sub match_tagquery($$) {
 # --- _mmfs_grep : xattr tagquery
 
 sub _mmfs_grep {
-  die "$0: keeps file names matching a tag query
+  die1 "$0: keeps file names matching a tag query
 Usage: $0 <tagquery>
 Reads filenames from stdin, writes matching the <tagquery> to stdout.
 Example: ls | _mmfs_grep \"+foo -bar baz\"
@@ -823,7 +820,7 @@ Example: ls | _mmfs_grep \"+foo -bar baz\"
   my $orterms = parse_tagquery($ARGV[0]);
   my $fn0;
   while (defined($fn0=<STDIN>)) {
-    die "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
+    die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
     #print "  $fn0\n";
     my $tags = $xattr_api->{getxattr}->($fn0, $key0);
     if (!defined($tags) and !$!{$ENOATTR}) {
@@ -896,7 +893,7 @@ sub get_format_func($;$) {
     my @st = stat($filename);
     @st ? "format=?-no-try mtime=$st[9] size=$st[7] tags=$tagsc f=$filename\n"
         : "format=?-no-try tags=$tagsc f=$filename\n"
-  } : $is_fatal ? die("$0: fatal: unknown output format: $format\n") : undef
+  } : $is_fatal ? die1("$0: fatal: unknown output format: $format\n") : undef
 }
 
 my $format_usage =
@@ -968,7 +965,7 @@ sub find_matches($$$$$) {
     my $f;
     my $fn0;
     while (defined($fn0 = <STDIN>)) {
-      die "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
+      die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
       $process_func->($fn0);
     }
   } else {
@@ -982,7 +979,7 @@ sub print_all_lines() {
   $HC = undef;
   local $_;
   while (<STDIN>) {
-    die "$0: fatal: incomplete line in filename: $_\n" if !chomp($_);
+    die1 "$0: fatal: incomplete line in filename: $_\n" if !chomp($_);
     ++$C;
     $_ .= "\n" if substr($_, -1) ne "\n";
     print;
@@ -1005,7 +1002,7 @@ sub print_find_stats($) {
 
 #** Example: _copyattr() { _mmfs_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne "print if s@^rm -f @_copyattr @ and s@ #, keep @ @" >_d.sh; source _d.sh | sh
 sub _mmfs_dump {
-  die "$0: dumps tags on files to stdout
+  die1 "$0: dumps tags on files to stdout
 Usage: $0 [<flag> ...] <filename> [...] > <tagfile>
 Flags:
 --printfn=<filename> : In the output, print the specified filename instead.
@@ -1038,16 +1035,16 @@ It follows symlinks.
     elsif ($arg eq "--print-empty=yes" or $arg eq "--tagquery=:any" or $arg eq "--any") { $match_func = 1 }
     elsif ($arg eq "--print-empty=no" or $arg eq "--tagquery=:tagged" or $arg eq "--tagquery=*" or $arg eq "--tagged") { $match_func = sub { my $tags = $_[1]; $tags =~ m@[^\s,]@ } }
     elsif ($arg eq "--tagquery=:none" or $arg eq "--tagquery=-*" or $arg eq "--untagged") { $match_func = sub { my $tags = $_[1]; $tags !~ m@[^\s,]@ } }
-    elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
-    elsif ($arg =~ m@\A--tagquery=@) { die "$0: fatal: unsupported flag value, use find instead: $arg\n" }
+    elsif ($arg =~ m@\A--print-empty=@) { die1 "$0: fatal: unknown flag value: $arg\n" }
+    elsif ($arg =~ m@\A--tagquery=@) { die1 "$0: fatal: unsupported flag value, use find instead: $arg\n" }
     elsif ($arg eq "--recursive=yes") { $is_recursive = 1 }
     elsif ($arg eq "--recursive=no") { $is_recursive = 0 }
-    elsif ($arg =~ m@\A--recursive=@) { die "$0: fatal: unknown flag value: $arg\n" }
+    elsif ($arg =~ m@\A--recursive=@) { die1 "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg =~ m@\A--printfn=(.*)@s) { $printfn = $1 }
-    else { die "$0: fatal: unknown flag: $arg\n" }
+    else { die1 "$0: fatal: unknown flag: $arg\n" }
   }
   if ($is_stdin) {
-    die "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
+    die1 "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
   } else {
     splice(@ARGV, 0, $i);
   }
@@ -1077,11 +1074,11 @@ sub tagquery_to_match_func($) {
 
 my $format_usage_for_find = $format_usage;
 $format_usage_for_find =~ s@\Q (default) @ @g;
-die "$0: assert: missing format default\n" if
+die1 "$0: assert: missing format default\n" if
     $format_usage_for_find !~ s@(\n--format=filename) : @$1 (default) : @;
 
 sub _mmfs_find {
-  die "$0: finds matching files, prints list or dump to stdout
+  die1 "$0: finds matching files, prints list or dump to stdout
 Usage: $0 [<flag> ...] [<tagquery>] [<filename> ...]
 Flags:
 --printfn=<filename> : In the output, print the specified filename instead.
@@ -1118,24 +1115,24 @@ It follows symlinks.
     elsif ($arg eq "--print-empty=yes" or $arg eq "--any") { $match_func = 1 }
     elsif ($arg eq "--print-empty=no" or $arg eq "--tagged") { $match_func = tagquery_to_match_func(":tagged") }
     elsif ($arg eq "--untagged") { $match_func = tagquery_to_match_func(":none") }
-    elsif ($arg =~ m@\A--print-empty=@) { die "$0: fatal: unknown flag value: $arg\n" }
+    elsif ($arg =~ m@\A--print-empty=@) { die1 "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg =~ m@\A--tagquery=(.*)@s) { $match_func = tagquery_to_match_func($1); }
     elsif ($arg eq "--recursive=yes") { $is_recursive = 1 }
     elsif ($arg eq "--recursive=no") { $is_recursive = 0 }
-    elsif ($arg =~ m@\A--recursive=@) { die "$0: fatal: unknown flag value: $arg\n" }
+    elsif ($arg =~ m@\A--recursive=@) { die1 "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg =~ m@\A--printfn=(.*)@s) { $printfn = $1 }
-    else { die "$0: fatal: unknown flag: $arg\n" }
+    else { die1 "$0: fatal: unknown flag: $arg\n" }
   }
   if (!defined($match_func)) {
-    die "$0: fatal: missing <tagquery> argument\n" if $i >= @ARGV;
+    die1 "$0: fatal: missing <tagquery> argument\n" if $i >= @ARGV;
     $match_func = tagquery_to_match_func($ARGV[$i++]);
   }
   if ($stdin_mode) {
-    die "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
+    die1 "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
   } else {
     splice(@ARGV, 0, $i);
   }
-  die "$0: fatal: incompatible flags: --stdin-tagfile and --recursive=yes\n" if
+  die1 "$0: fatal: incompatible flags: --stdin-tagfile and --recursive=yes\n" if
       $stdin_mode == 2 and $is_recursive;
   $format_func = get_format_func(($format_func or "filename"), 1) if !ref($format_func);
   if ($stdin_mode == 2) {
@@ -1178,7 +1175,7 @@ It follows symlinks.
 #** @example _mmfs_fixprincipal file1 file2 ...
 sub _mmfs_fixprincipal# Hide from <command> list.
 {
-  die "$0: fatal: not supported with ppfiletagger\n";
+  die1 "$0: fatal: not supported with ppfiletagger\n";
 }
 
 # --- _mmfs_expand_tag : read_tags_file
@@ -1204,14 +1201,63 @@ sub _mmfs_expand_tag {
 
 # --- end
 END
+
+sub die1($) {
+  print STDERR $_[0];
+  exit(1);
+}
+
+if (@ARGV and $ARGV[0] eq "--sa") {
+  eval <<'  ENDSA'; die $@ if $@;
+  shift(@ARGV);
+  local $_ = ""; while (read(STDIN, $_, 65536, length)) {}
+  die1 "$0: fatal: missing stdin-ARGV ($_)\n" if !m@\A(.*? : -)[ \n]@;
+  die1 "$0: fatal: bad stdin-ARGV ending\n" if !chomp();
+  $_ .= " " if substr($_, -1) ne " ";  # Appended by Midnight commander.
+  pos($_) = length($1);
+  # Unescape escaped @ARGV:
+  # * Bourne shell `set -x' escapes by '...' and ' -> '\'' .
+  # * Midnight Commander escapes by prepending backslashes and also prepending
+  #   ./ if the argument starts with -.
+  while (m@\G(?:\ \Z(?!\n)|\ \x27((?:[^\x27]+|\x27\\\x27\x27)*)\x27
+           (\\\x27(?=\ ))?|\ ((?:[^\x27"\$\\\ \n]+|\\[^\n])+)(?=\ ))@gcx) {
+    if (defined($1)) { push @ARGV, $1; $ARGV[-1] =~ s@\x27\\\x27\x27@\x27@g;
+      $ARGV[-1] .= $2 if defined($2) }
+    elsif (defined($3)) { push @ARGV, $3; $ARGV[-1] =~ s@\\(.)@$1@sg; }
+  }
+  die1 "$0: fatal: bad stdin-ARGV\n" if pos($_) != length($_);
+  if (open(my($fd9), "<&=9")) { open(STDIN, "<&9"); close($fd9) }
+  ENDSA
+}
+if (@ARGV and $ARGV[0] eq "--mcmenu") {
+  eval <<'  ENDMCMENU'; die $@ if $@;
+  shift(@ARGV);
+  my $pid = fork();  # Use fork to catch fatal signals etc.
+  die1 "$0: fatal: fork(): $!\n" if !defined($pid);
+  if ($pid) {  # Parent.
+    die1 "fatal: waitpid(): !\n" if $pid != waitpid($pid, 0);
+    my $exit_code = ($? & 255) | ($? >> 8);
+    print STDERR "\007see error $exit_code above\n" if $exit_code;
+    { my $f = select(STDERR); $| = 1; select($f); }
+    print STDERR "Press <Enter> to return to mc.";  # No trailing \n.
+    <STDIN>;
+    exit($exit_code);
+  }
+  ENDMCMENU
+}
+if (@ARGV and $ARGV[0] =~ s@\A--cd=@@) {
+  my $dir = shift(@ARGV);
+  die1 "$0: fatal: chdir: $dir: $!\n" if !chdir($dir);
+}
+
 my %parts;
 my @partps;
 while (m@\n# ---([ \t]*(\w+)(?: :[ \t]*([\w \t]*)|[ \t]*)(?=\n))?@g) {
-  die "$0: assert bad part separator\n" if !defined($1);
+  die1 "$0: assert: bad part separator\n" if !defined($1);
   my $part = $2;
   push @partps, $part, pos($_) - length($1) - 6;
   my @deps = split(/\s+/, defined($3) ? $3 : "");
-  die "$0: assert: duplicate part: $part\n" if exists($parts{$part});
+  die1 "$0: assert: duplicate part: $part\n" if exists($parts{$part});
   $parts{$part} = \@deps;
 }
 # This also includes fixprincipal.
@@ -1226,13 +1272,36 @@ sub exit_usage() {
   exit(1);
 }
 
+my $topcmd = "_mmfs";  # Must be a valid shell identifier.
+if (@ARGV == 1 and $ARGV[0] eq "--load") {
+  die1 "$0: fatal: open script: $!\n" if !open(my($f), "<", $0);
+  $_ = join("", <$f>);
+  die if !close($f);
+  die "$0: fatal: #!perl not found in script\n" if !m@\n#!perl(?: .*)?\n@g;
+  substr($_, 0, pos($_)) = ""; pos($_) = 0;
+  die "$0: fatal: __END__ not found in script\n" if !m@\n__END__\n@g;
+  substr($_, pos($_)) = "";
+  s@'@'\\''@g;
+  my $funcs = join("", map { "${topcmd}_$_() { ${topcmd} $_ \"\$@\"; }\n" } @cmds);
+  # Unlimited argv support (using set -x) works in bash, zsh, ksh, pdksh, lksh,
+  # mksh and busybox sh (since about 1.17.3 in 2010). It doesn't work in dash.
+  print "unset _${topcmd}_PERLCODE; _${topcmd}_PERLCODE='\$0=\"$topcmd\";$_'\n".qq(
+case "\$(exec 2>&1; set -x; : "a b")" in  # Detect unlimited argv support.
+*" : 'a b'"\) ${topcmd}() {  # Avoid E2BIG by passing long argv on stdin.
+  (exec 9>&0; (exec 2>&1; set -x; : - "\$\@") |
+  (export _${topcmd}_PERLCODE; exec perl -e 'eval\$ENV{_${topcmd}_PERLCODE};die\$\@if\$\@' -- --sa))
+} ;;
+*\) ${topcmd}() {  # Fallback with limited argv, e.g. in dash.
+  (export _${topcmd}_PERLCODE; exec perl -e 'eval\$ENV{_${topcmd}_PERLCODE};die\$\@if\$\@' -- "\$\@")
+} ;;
+esac\n$funcs);
+  exit;
+}
+$0 = $topcmd;
+
 if (!@ARGV or $ARGV[0] eq "--help") {
   exit_usage();
-#} elsif ($ARGV[0] eq "--load") {
-} elsif ($ARGV[0] eq "--shfn") {
-  for my $cmd (@cmds) {
-    print "_mmfs_$cmd() { _mmfs $cmd \"\$@\"; }\n";
-  }
+} elsif ($ARGV[0] eq "--load") {
 } else {
   my $is_mcmenu = $ARGV[0] eq "--mcmenu";
   if ($is_mcmenu) {
@@ -1246,14 +1315,14 @@ if (!@ARGV or $ARGV[0] eq "--help") {
   }
   {
     my $cmdp = "_mmfs_$cmd";
-    die "fatal: no $0 <command>: $cmd\n" if !exists($parts{$cmdp});
+    die1 "$0: fatal: no $0 <command>: $cmd\n" if !exists($parts{$cmdp});
     my %done;
     my @todo = ($cmdp);
     for my $part (@todo) {  # Figure out which parts are used.
       if (!exists($done{$part})) {
         $done{$part} = 1;
         for my $part2 (@{$parts{$part}}) {
-          die "$0: assert: missing dep: $part2\n" if !exists($parts{$part2});
+          die1 "$0: assert: missing dep: $part2\n" if !exists($parts{$part2});
           push @todo, $part2;
         }
       }
@@ -1274,55 +1343,8 @@ if (!@ARGV or $ARGV[0] eq "--help") {
     exit(1);
   }
   $0 .= " $cmd";
-  if ($is_mcmenu) {
-    # Use fork to catch fatal signals etc.
-    my $pid = fork();
-    die "fatal: fork(): $!\n" if !defined($pid);
-    if ($pid) {  # Parent.
-      die "fatal: waitpid(): !\n" if $pid != waitpid($pid, 0);
-      my $exit_code = ($? & 255) | ($? >> 8);
-      print STDERR "\007see error $exit_code above\n" if $exit_code;
-      { my $f = select(STDERR); $| = 1; select($f); }
-      print STDERR "Press <Enter> to return to mc.";  # No trailin \n
-      <STDIN>;
-      exit($exit_code);
-    }
-  }
   $func->(@ARGV);
   exit 1 if $EC;
 }
 
 __END__
-'  # Trailer of http://pts.github.io/Long.Perl.Header/
-case "$(exec 2>&1; set -x; : "a b")" in  # Avoid E2BIG with long argv.
-*" : 'a b'") unset _ARGV_PERLCODE; _ARGV_PERLCODE='
-  local $_ = ""; while (read(STDIN, $_, 65536, length)) {}
-  die "fatal: missing stdin-ARGV\n" if !m@\A(.*? : -)[ \n]@;
-  pos($_) = length($1);
-  while (m@\G(?:\n\Z(?!\n)|\ \x27((?:[^\x27]+|\x27\\\x27\x27)*)\x27
-           (\\\x27(?=[\ \n]))?|\ ([^\x27"\$\\\ \n]+))@gcx) {
-    if (defined($1)) { push @ARGV, $1; $ARGV[-1] =~ s@\x27\\\x27\x27@\x27@g;
-      $ARGV[-1] .= $2 if defined($2) }
-    elsif (defined($3)) { push @ARGV, $3 }
-  }
-  die "fatal: bad stdin-ARGV\n" if pos($_) != length($_);
-  if (open(my($fd9), "<&=9")) { open(STDIN, "<&9"); close($fd9) }
-'; _mmfs() {
-  (exec 9>&0; (exec 2>&1; set -x; : - "$@") |
-  (export _ARGV_PERLCODE; export _mmfs_PERLCODE
-   exec perl -e '$0="_mmfs";
-   eval$ENV{_ARGV_PERLCODE};die$@if$@;$_=$ENV{_mmfs_PERLCODE};
-   s@^.*?;__END__\n@undef\$_;\n\n\n\n@s;
-   s@<<([A-Z]\w*)@<<\x27$1\x27@g;eval;die$@if$@'))
-} ;;
-*) _mmfs() {
-  (export _mmfs_PERLCODE; exec perl -e '$0="_mmfs";
-   $_=$ENV{_mmfs_PERLCODE};s@^.*?;__END__\n@undef\$_;\n\n\n\n@s;
-   s@<<([A-Z]\w*)@<<\x27$1\x27@g;eval;die$@if$@' -- "$@")
-} ;;
-esac
-if test "$1" = --load; then
-  eval "$(_mmfs --shfn || echo false)"  # Create more shell functions.
-else
-  _mmfs "$@"
-fi
