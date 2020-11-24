@@ -419,6 +419,7 @@ sub apply_tagspec($$$$) {
 sub apply_to_multiple($$) {
   my($tagspec, $filenames) = @_;
   $tagspec =~ s@\A\Q./@@;  # Prepended by Midnight Commander (mc).
+  print "to these files:\n";
   my($tag_mode, $tagspecmsg) = apply_tagspec($tagspec, "++", $filenames, 0);
   my $action = $tag_mode eq "overwrite" ? "overwritten" : $tag_mode eq "merge" ? "merged" : "changed";
   ($action, $tagspecmsg)
@@ -429,9 +430,9 @@ sub apply_to_multiple($$) {
 #** Example: _cmd_tag "tag1 -tag2 ..." file1 file2 ...    # keep tag3
 sub _cmd_tag {
   die1 "$0: adds or removes tags on files
-Usage: $0 \x27<tagspec>\x27 [<filename> ...]
-    or ls | $0 --stdin <tagspec>
-    or $0 --stdin [<flag> ...] < <tagfile>
+Usage: $0 [--] \x27<tagspec>\x27 [<filename> ...]
+    or ls | $0 --stdin [--] \x27<tagspec>\x27
+    or $0 [<flag> ...] < <tagfile>
 <tagfile> contains:
 * Empty lines and comments starting with # + whitespace.
 * Lines of the colon form: <tagspec> :: <filename>
@@ -439,33 +440,38 @@ Usage: $0 \x27<tagspec>\x27 [<filename> ...]
 * Lines of the setfattr form: setfattr -x $key0 \x27<filename>\x27
 * Lines of the mediafileinfo form: format=... ... tags=<tags> ... f=<filename>
 * Output of: getfattr -hR -e text -n $key0 --absolute-names <path>
-Valid modes for --stdin:
-* --mode=change is like --prefix=++
-* --mode=overwrite == --mode=set == --set is like --prefix=.
-* --mode=merge == --merge is like --prefix=+
+Flags:
+--stdin : If <tagspec> is specified, then get filenames from stdin rather
+  than command-line. Otherwise same as --stdin-tagfile.
+--stdin-tagfile : Read <tagfile> (as sh, colon, getfattr, mfi) from stdin.
+--mode=change : Like --prefix=++
+--mode=overwrite | --mode=set | --set : Like --prefix=.
+--mode=merge | --merge : Like --prefix=+
 The default for setfattr and getfattr is --set, otherwise --mode=change.
 " if !@ARGV or $ARGV[0] eq "--help";
   my $tagspecmsg = "...";
-  print "to these files:\n";
   my $action = "modified";
-  if (@ARGV == 2 and $ARGV[0] eq "--stdin" and $ARGV[1] ne "-" and substr($ARGV[1], 0, 2) ne "--") {
+  if ((@ARGV == 2 and $ARGV[0] eq "--stdin" and $ARGV[1] ne "-" and substr($ARGV[1], 0, 2) ne "--") or
+      (@ARGV == 3 and $ARGV[0] eq "--stdin" and $ARGV[1] eq "--" and $ARGV[2] ne "-" and substr($ARGV[2], 0, 2) ne "--")) {
     # Read filenames from stdin, apply tags in $ARGV[1];
-    my($tagspec, $filenames) = ($ARGV[1], [<STDIN>]);
+    my($tagspec, $filenames) = ($ARGV[-1], [<STDIN>]);
     for my $fn0 (@$filenames) { die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0); }
     ($action, $tagspecmsg) = apply_to_multiple($tagspec, $filenames);
-  } elsif (!(@ARGV and $ARGV[0] eq "--stdin")) {
+  } elsif (@ARGV and ($ARGV[0] eq "--" ? (@ARGV > 1 and substr($ARGV[1], 0, 2) ne "--") : substr($ARGV[0], 0, 2) ne "--")) {
     shift(@ARGV) if @ARGV and $ARGV[0] eq "--";
+    # Midnight Commander (mc) prepends ./ to @ARGV elements starting with -.
     my($tagspec, $filenames) = (shift(@ARGV), \@ARGV);
     ($action, $tagspecmsg) = apply_to_multiple($tagspec, $filenames);
   } else {
     my $mode;
     my $tagspec_prefix = "";
+    my $stdin_mode = 0;
     my $i = 0;
     while ($i < @ARGV) {
       my $arg = $ARGV[$i++];
       if ($arg eq "-" or substr($arg, 0, 1) ne "-") { --$i; last }
       elsif ($arg eq "--") { last }
-      elsif ($arg eq "--stdin") {}
+      elsif ($arg eq "--stdin" or $arg eq "--stdin-tagfile" or $arg eq "--stdin-dump") { $stdin_mode = 2 }
       elsif ($arg eq "--mode=change" or $arg eq "--mode=++") { $mode = "++" }
       elsif ($arg eq "--mode=overwrite" or $arg eq "--mode=set" or $arg eq "--mode=++" or $arg eq "-overwrite" or $arg eq "--set") { $mode = "." }
       elsif ($arg eq "--mode=merge" or $arg eq "--mode=+" or $arg eq "--merge") { $mode = "+" }
@@ -474,6 +480,7 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
       else { die1 "$0: fatal: unknown flag: $arg\n" }
     }
     die1 "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
+    die1 "$0: fatal: expected --stdin-tagfile because of other flags\n" if $stdin_mode != 2;
     my $process_func = sub {
       my($filename, $tags, $default_mode) = @_;
       apply_tagspec($tagspec_prefix . $tags, ($mode or $default_mode), [$filename], 1);
@@ -493,6 +500,7 @@ sub _cmd_unify_tags {
   die1 "$0: makes both files have to union of tags
 Usage: $0 <filename1> <filename2>
     or echo \"... \x27filename1\x27 ... \x27filename2\x27 ...\" ... | $0 --stdin
+See above for the format of --stdin.
 " if @ARGV!=2 and @ARGV!=1;
   print "unifying tags\n";
 
@@ -1079,7 +1087,7 @@ die1 "$0: assert: missing format default\n" if
 
 sub _cmd_find {
   die1 "$0: finds matching files, prints list or dump to stdout
-Usage: $0 [<flag> ...] [<tagquery>] [<filename> ...]
+Usage: $0 [<flag> ...] [\x27<tagquery>\x27] [<filename> ...]
 Flags:
 --printfn=<filename> : In the output, print the specified filename instead.
 --tagquery=<tagquery> : Print files with matching tags.
@@ -1093,7 +1101,7 @@ $format_usage_for_find
 --recursive=no : Dump files only.
 <tagquery> arg must be present iff --tagquery=... (or equivalent) is missing.
 The find command is a generalization of grep and dump.
-The grep <tagquery> command is equivalent to: find --stdin --tagquery=<tagquery>
+The grep <tagquery> command is equivalent to: find --stdin <tagquery>
 The dump ... command is equivalent to: find --format=filename --any ...
 It supports more --tagquery=... values and --stdin-tagfile.
 It follows symlinks.
