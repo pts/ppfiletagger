@@ -21,7 +21,7 @@ $_ = "\n\n\n\n\n\n\n\n" . <<'END';
 # Simple superset of UTF-8 words.
 my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
                            [\xE0-\xEF] [\x80-\xBF]{2} |
-                           [\xF0-\xF4] [\x80-\xBF]{3}) /xo;
+                           [\xF0-\xF4] [\x80-\xBF]{3}) /x;
 
 my $key0 = "user.mmfs.tags";
 
@@ -184,7 +184,7 @@ sub read_tags_file(;$) {
     if (!length($2)) {
       print STDERR "syntax error in $tags_fn:$.: missing colon or newline\n"; exit 4;
     }
-    if ($tag !~ /\A(?:$tagchar_re)+\Z(?!\n)/) {
+    if ($tag !~ /\A(?:$tagchar_re)+\Z(?!\n)/o) {
       # TODO(pts): Support -* here.
       print STDERR "syntax error in $tags_fn:$lineno: bad tag syntax: $tag\n";
       exit 5;
@@ -796,7 +796,7 @@ sub parse_tagquery($) {
         $needplus->{$tagv} = 1;
         next if $tagv eq "*";
       }
-      die1 "$0: fatal: invalid tagv syntax: $tagv\n" if $tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@;
+      die1 "$0: fatal: invalid tagv syntax: $tagv\n" if $tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@o;
     }
     die1 "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !($had_any or %$needplus or %$needminus);
     #print STDERR "info: query spec needplus=(@{[sort keys%$needplus]}) needminus=(@{[sort keys%$needminus]}) ignore=(@{[sort keys%$ignore]})\n";
