@@ -246,7 +246,7 @@ sub parse_dump($$) {
   }
 }
 
-# --- _mmfs_tag : xattr read_tags_file parse_dump
+# --- _cmd_tag : xattr read_tags_file parse_dump
 
 my $known_tags = read_tags_file();
 my $pmtag_re = qr/(---|[-+]?)((?:v:)?(?:$tagchar_re)+)/o;
@@ -426,8 +426,8 @@ sub apply_to_multiple($$) {
 
 #** See docs for using this command from Midnight Commander (mc) menu.
 #** FYI No way to signal an error to Midight Commander without pausing.
-#** Example: _mmfs_tag "tag1 -tag2 ..." file1 file2 ...    # keep tag3
-sub _mmfs_tag {
+#** Example: _cmd_tag "tag1 -tag2 ..." file1 file2 ...    # keep tag3
+sub _cmd_tag {
   die1 "$0: adds or removes tags on files
 Usage: $0 \x27<tagspec>\x27 [<filename> ...]
     or ls | $0 --stdin <tagspec>
@@ -485,11 +485,11 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
   print "$action tags of $C file@{[$C==1?q():q(s)]}: $tagspecmsg\n";
 }
 
-# --- _mmfs_unify_tags : xattr
+# --- _cmd_unify_tags : xattr
 
 #** TODO(pts): Unify more than 2 files to prevent the needed for 2 runs on
 #**            d.sh: modified 32, then 4, then 0 files.
-sub _mmfs_unify_tags {
+sub _cmd_unify_tags {
   die1 "$0: makes both files have to union of tags
 Usage: $0 <filename1> <filename2>
     or echo \"... \x27filename1\x27 ... \x27filename2\x27 ...\" ... | $0 --stdin
@@ -613,10 +613,10 @@ Usage: $0 <filename1> <filename2>
   print "modified tags of $C file@{[$C==1?q():q(s)]}\n";
 }
 
-# --- _mmfs_show : xattr
+# --- _cmd_show : xattr
 
 #** See docs for using this command from Midnight Commander (mc) menu.
-sub _mmfs_show {
+sub _cmd_show {
 die1 "$0: shows tags the specified files have
 Usage: $0 [<flag> ...] [<filename> ...]
 Flags:
@@ -716,12 +716,12 @@ Supported <tagquerym> values: :any :tagged :none
   print "shown tags of $HC of $C file@{[$C==1?q():q(s)]}\n";
 }
 
-# --- _mmfs_get_tags : xattr
+# --- _cmd_get_tags : xattr
 
-#** Like _mmfs_show, but only one file, and without extras. Suitable for
+#** Like _cmd_show, but only one file, and without extras. Suitable for
 #** scripting.
 #** It works for weird filenames (containing e.g. " " or "\n"), too.
-sub _mmfs_get_tags {
+sub _cmd_get_tags {
   die1 "$0: displays tags a sigle file has
 Usage: $0 <filename>\n" if @ARGV != 1;
   my $fn0 = $ARGV[0];
@@ -809,13 +809,13 @@ sub match_tagquery($$) {
   0  # No match.
 }
 
-# --- _mmfs_grep : xattr tagquery
+# --- _cmd_grep : xattr tagquery
 
-sub _mmfs_grep {
+sub _cmd_grep {
   die1 "$0: keeps file names matching a tag query
 Usage: $0 <tagquery>
 Reads filenames from stdin, writes matching the <tagquery> to stdout.
-Example: ls | _mmfs_grep \"+foo -bar baz\"
+Example: ls | _cmd_grep \"+foo -bar baz\"
 " if 1!=@ARGV;
   my $orterms = parse_tagquery($ARGV[0]);
   my $fn0;
@@ -881,7 +881,7 @@ sub get_format_func($;$) {
   ($format eq "getfattr") ? sub {
     my($tags, $filename) = @_;
     # getfattr always omits files without tags (i.e. without the
-    # $key0 extended attribute). Use _mmfs_dump --print-empty=no
+    # $key0 extended attribute). Use _cmd_dump --print-empty=no
     # to get this behavior.
     "# file: $filename\n$key0=" . gfaq($tags). "\n\n"
   } : ($format eq "mfi" or $format eq "mediafileinfo" or $format eq "mscan") ? sub {
@@ -991,17 +991,17 @@ sub print_find_stats($) {
   # We print these messages to STDERR (rather than STDOUT starting with `# `),
   # because some tools do not support extra lines, e.g. `setfattr --restore
   # <tagfile>`, which restores based on
-  # `_mmfs_dump --format=getfattr ... > <tagfile>`
+  # `_cmd_dump --format=getfattr ... > <tagfile>`
   # does not support comments starting with `# `.
   print STDERR "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
   my $hcof = defined($HC) ? "$HC of " : "";
   print STDERR "info: $action tags of $hcof$C file@{[$C==1?q():q(s)]}\n";
 }
 
-# --- _mmfs_dump : xattr get_format_func find_matches
+# --- _cmd_dump : xattr get_format_func find_matches
 
-#** Example: _copyattr() { _mmfs_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne "print if s@^rm -f @_copyattr @ and s@ #, keep @ @" >_d.sh; source _d.sh | sh
-sub _mmfs_dump {
+#** Example: _copyattr() { _cmd_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne "print if s@^rm -f @_copyattr @ and s@ #, keep @ @" >_d.sh; source _d.sh | sh
+sub _cmd_dump {
   die1 "$0: dumps tags on files to stdout
 Usage: $0 [<flag> ...] <filename> [...] > <tagfile>
 Flags:
@@ -1016,7 +1016,7 @@ $format_usage
 --recursive=no : Dump files only.
 Supported <tagquerym> values: :any :tagged :none
 To apply tags in <tagfile> printed by $0 (multiple --format=...), run:
-  _mmfs_tag --stdin --mode=change < <tagfile>
+  $0 tag --stdin --mode=change < <tagfile>
 It follows symlinks.
 " if !@ARGV or $ARGV[0] eq "--help";
   my($printfn);
@@ -1057,7 +1057,7 @@ It follows symlinks.
   print_find_stats("dumped");
 }
 
-# --- _mmfs_find : xattr get_format_func find_matches parse_dump tagquery
+# --- _cmd_find : xattr get_format_func find_matches parse_dump tagquery
 
 sub tagquery_to_match_func($) {
   my $tagquery = $_[0];
@@ -1077,7 +1077,7 @@ $format_usage_for_find =~ s@\Q (default) @ @g;
 die1 "$0: assert: missing format default\n" if
     $format_usage_for_find !~ s@(\n--format=filename) : @$1 (default) : @;
 
-sub _mmfs_find {
+sub _cmd_find {
   die1 "$0: finds matching files, prints list or dump to stdout
 Usage: $0 [<flag> ...] [<tagquery>] [<filename> ...]
 Flags:
@@ -1170,19 +1170,22 @@ It follows symlinks.
   print_find_stats("found");
 }
 
-# --- _mmfs_fixprincipal
+# --- _cmd_fixprincipal
 
-#** @example _mmfs_fixprincipal file1 file2 ...
-sub _mmfs_fixprincipal# Hide from <command> list.
+#** Usage: _cmd_fixprincipal file1 file2 ...
+sub _cmd_fixprincipal# Hide from <command> list.
 {
   die1 "$0: fatal: not supported with ppfiletagger\n";
 }
 
-# --- _mmfs_expand_tag : read_tags_file
+# --- _cmd_expand_tag : read_tags_file
 
-#** Displays all known tags whose prefix is $1, displaying at most $2 tags.
-#** @example _mmfs_expand_tag ta
-sub _mmfs_expand_tag {
+#** @example _cmd_expand_tag ta
+sub _cmd_expand_tag {
+  die1 "$0: display tags with the specified prefix
+Usage: $0 <tagprefix> [<limit>]
+The default limit is 10.
+" if !@ARGV or $ARGV[0] eq "--help";
   my @tags = sort(keys(%{read_tags_file()}));
   my $sign = "";
   my $prefix = @ARGV ? $ARGV[0] : "";
@@ -1261,18 +1264,24 @@ while (m@\n# ---([ \t]*(\w+)(?: :[ \t]*([\w \t]*)|[ \t]*)(?=\n))?@g) {
   $parts{$part} = \@deps;
 }
 # This also includes fixprincipal.
-# my @cmds = map { m@^_mmfs_(.*)@ and $1  ? ($1) : () } keys(%parts);
+# my @cmds = map { m@^_cmd_(.*)@ and $1  ? ($1) : () } keys(%parts);
 my @cmds;
-while (m@\nsub[ \t]+(_mmfs_(\w+))[ \t({]@g) { push @cmds, $2 if exists($parts{$1}) }
+while (m@\nsub[ \t]+(_cmd_(\w+))[ \t({]@g) { push @cmds, $2 if exists($parts{$1}) }
+
+my $topcmd = $0;
+$topcmd =~ s@\A.*/@@;
+$topcmd =~ s@[.][^.]+\Z(?!\n)@@;
+$topcmd =~ s@_shell_functions\Z(?!\n)@@;
+$topcmd =~ s@\W@_@g;  # - is not allowed in shell function name.
+$topcmd = "_mmfs" if !length($topcmd) or $topcmd eq "ppfiletagger";  # Legacy.
 
 sub exit_usage() {
   print STDERR "$0: file tagging and search-by-tag tool\n" .
-      "Usage: _mmfs <command> [<arg> ...]\n" .
+      "Usage: _${topcmd} <command> [<arg> ...]\n" .
       "Supported <command>s: @cmds\n";
   exit(1);
 }
 
-my $topcmd = "_mmfs";  # Must be a valid shell identifier.
 if (@ARGV == 1 and $ARGV[0] eq "--load") {
   die1 "$0: fatal: open script: $!\n" if !open(my($f), "<", $0);
   $_ = join("", <$f>);
@@ -1282,6 +1291,7 @@ if (@ARGV == 1 and $ARGV[0] eq "--load") {
   die "$0: fatal: __END__ not found in script\n" if !m@\n__END__\n@g;
   substr($_, pos($_)) = "";
   s@'@'\\''@g;
+  # TODO(pts): Add bash and zsh completion in addition to these functions.
   my $funcs = join("", map { "${topcmd}_$_() { ${topcmd} $_ \"\$@\"; }\n" } @cmds);
   # Unlimited argv support (using set -x) works in bash, zsh, ksh, pdksh, lksh,
   # mksh and busybox sh (since about 1.17.3 in 2010). It doesn't work in dash.
@@ -1314,7 +1324,7 @@ if (!@ARGV or $ARGV[0] eq "--help") {
     if (@ARGV == 1) { $cmd = shift(@ARGV); push @ARGV, "--help" }
   }
   {
-    my $cmdp = "_mmfs_$cmd";
+    my $cmdp = "_cmd_$cmd";
     die1 "$0: fatal: no $0 <command>: $cmd\n" if !exists($parts{$cmdp});
     my %done;
     my @todo = ($cmdp);
@@ -1337,7 +1347,7 @@ if (!@ARGV or $ARGV[0] eq "--help") {
     $_ = join("", @src);
   }
   eval; die $@ if $@;  # Delayed and partial parsing of actual Perl code.
-  my $func; { no strict qw(vars); $func = \&{__PACKAGE__ . "::_mmfs_$cmd" } }
+  my $func; { no strict qw(vars); $func = \&{__PACKAGE__ . "::_cmd_$cmd" } }
   if (!defined(&$func)) {
     print STDERR "$0: assert: no command func: $cmd\n";
     exit(1);
