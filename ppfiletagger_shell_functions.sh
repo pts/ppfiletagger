@@ -210,33 +210,34 @@ sub parse_dump($$) {
   my($line, $cfilename, $lineno);
   while (defined($line = <STDIN>)) {
     $lineno = $.;
-    if ($line =~ m@^# file: (.*)$@) {  # Output of getfattr.
+    if ($line =~ m@^# file: (.*)\n@) {  # Output of getfattr.
       $cfilename = $1
-    } elsif ($line =~ /^([^#\n=:"]+)(?:="(.*?)")?$/) {  # Output of getfattr.
+    } elsif ($line =~ m@^([^#\n=:"]+)(?:="(.*?)")?\n@) {  # Output of getfattr.
       my($key, $value) = ($1, $2);
-      die "$0: bad key: $key ($lineno)\n" if $key =~ /["\\]/;
+      die "$0: bad key: $key ($lineno)\n" if $key =~ m@["\\]@;
       die "$0: missing filename for key: $key ($lineno)\n" if
           !defined($cfilename);
       $process_func->($cfilename, $value, ".") if $key eq $key0;
-    } elsif ($line =~ m@(.*?):: (.*?)$@) {
+    } elsif ($line =~ m@(.*?):: (.*?)\n@) {
       my($tagspec, $filename) = ($1, $2);
       $process_func->($filename, $tagspec, undef);
     } elsif ($line =~ m@^#@) {  # Comment.
-    } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+user.mmfs.tags[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*$@o) {
+    } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+user.mmfs.tags[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
       my $filename = $sharg_decode->($1);
       $process_func->($filename, "", ".");
-    } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+user.mmfs.tags[ \t]+-v[ \t]+($sharg_re)[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*$@o) {
+    } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+user.mmfs.tags[ \t]+-v[ \t]+($sharg_re)[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
       my($tags, $filename) = ($sharg_decode->($1), $sharg_decode->($2));
       $process_func->($filename, $tags, ".");
-    } elsif ($line =~ m@^format=(?:[^ ]+)(?= )(.*?) f=(.*)$@) {  # mediafileinfo form.
+    } elsif ($line =~ m@^format=(?:[^ ]+)(?= )(.*?) f=(.*)\n@) {  # mediafileinfo form.
       my $filename = $2;
       $line = $1;
       my $tags = $line =~ m@ tags=([^ ]+)@ ? $1 : "";
       $process_func->($filename, $tags, undef);
-    } elsif ($line !~ m@\S@) {
+    } elsif ($line eq "\n") {
       $cfilename = undef
     } else {
-      die "$0: fatal: bad tagfile line ($lineno): $line";
+      die "$0: fatal: incomplete tagfile line ($lineno): $line\n" if !chomp($line);
+      die "$0: fatal: bad tagfile line ($lineno): $line\n";
     }
   }
 }
@@ -449,7 +450,7 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
   if (@ARGV == 2 and $ARGV[0] eq "--stdin" and $ARGV[1] ne "-" and substr($ARGV[1], 0, 2) ne "--") {
     # Read filenames from stdin, apply tags in $ARGV[1];
     my($tagspec, $filenames) = ($ARGV[1], [<STDIN>]);
-    for my $fn0 (@$filenames) { chomp($fn0); }
+    for my $fn0 (@$filenames) { die "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0); }
     ($action, $tagspecmsg) = apply_to_multiple($tagspec, $filenames);
   } elsif (!(@ARGV and $ARGV[0] eq "--stdin")) {
     my($tagspec, $filenames) = (shift(@ARGV), \@ARGV);
@@ -595,6 +596,7 @@ Usage: $0 <filename1> <filename2>
   } else {
     die "error: supply filename pairs in STDIN (not a TTY)\n" if -t STDIN;
     while (<STDIN>) {
+      die "$0: fatal: incomplete line in unify line: $_\n" if !chomp($_);
       next if !/\S/ or /^\s*#/;
       my @L;
       while (/\x27((?:[^\x27]+|\x27\\\x27\x27)*)\x27/g) {
@@ -821,7 +823,7 @@ Example: ls | _mmfs_grep \"+foo -bar baz\"
   my $orterms = parse_tagquery($ARGV[0]);
   my $fn0;
   while (defined($fn0=<STDIN>)) {
-    chomp $fn0;
+    die "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
     #print "  $fn0\n";
     my $tags = $xattr_api->{getxattr}->($fn0, $key0);
     if (!defined($tags) and !$!{$ENOATTR}) {
@@ -966,7 +968,7 @@ sub find_matches($$$$$) {
     my $f;
     my $fn0;
     while (defined($fn0 = <STDIN>)) {
-      chomp($fn0);
+      die "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
       $process_func->($fn0);
     }
   } else {
@@ -980,6 +982,7 @@ sub print_all_lines() {
   $HC = undef;
   local $_;
   while (<STDIN>) {
+    die "$0: fatal: incomplete line in filename: $_\n" if !chomp($_);
     ++$C;
     $_ .= "\n" if substr($_, -1) ne "\n";
     print;
