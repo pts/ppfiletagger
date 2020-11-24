@@ -216,7 +216,7 @@ sub parse_dump($$) {
     $lineno = $.;
     if ($line =~ m@^# file: (.*)\n@) {  # Output of getfattr.
       $cfilename = $1
-    } elsif ($line =~ m@^([^#\n=:"]+)(?:="(.*?)")?\n@) {  # Output of getfattr.
+    } elsif ($line =~ m@^([^#\n=:"\s]+)(?:="(.*?)")?\n@) {  # Output of getfattr.
       my($key, $value) = ($1, $2);
       die1 "$0: fatal: bad key: $key ($lineno)\n" if $key =~ m@["\\]@;
       die1 "$0: fatal: missing filename for key: $key ($lineno)\n" if
