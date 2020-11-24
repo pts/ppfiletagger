@@ -831,11 +831,24 @@ sub match_tagquery($$) {
 
 sub _cmd_grep {
   die1 "$0: keeps file names matching a tag query
-Usage: $0 <tagquery>
+Usage: $0 [--stdin] \x27<tagquery>\x27
 Reads filenames from stdin, writes matching the <tagquery> to stdout.
 Example: ls | _cmd_grep \"+foo -bar baz\"
-" if 1!=@ARGV;
-  my $orterms = parse_tagquery($ARGV[0]);
+Flags:
+--stdin : Get filenames from stdin rather than command-line.
+" if !@ARGV or $ARGV[0] eq "--help";
+  my $i = 0;
+  while ($i < @ARGV) {
+    my $arg = $ARGV[$i++];
+    if ($arg eq "--") { last }
+    elsif (substr($arg, 0, 2) ne "--") { --$i; last }
+    elsif ($arg eq "--stdin") {}
+    else { die1 "$0: fatal: unknown flag: $arg\n" }
+  }
+  die1 "$0: fatal: missing <tagquery> argument\n" if $i >= @ARGV;
+  my $tagquery = $ARGV[$i++];
+  die1 "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
+  my $orterms = parse_tagquery($tagquery);
   my $fn0;
   while (defined($fn0=<STDIN>)) {
     die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
@@ -1124,8 +1137,8 @@ It follows symlinks.
   my $i = 0;
   while ($i < @ARGV) {
     my $arg = $ARGV[$i++];
-    if ($arg eq "-" or substr($arg, 0, 1) ne "-") { --$i; last }
-    elsif ($arg eq "--") { last }
+    if ($arg eq "--") { last }
+    elsif (substr($arg, 0, 2) ne "--") { --$i; last }
     elsif ($arg eq "--stdin") { $stdin_mode = 1 }
     elsif ($arg eq "--stdin-tagfile" or $arg eq "--stdin-dump") { $stdin_mode = 2 }
     elsif ($arg eq "--sh" or $arg eq "--colon" or $arg eq "--mfi" or $arg eq "--mscan") { $format_func = get_format_func(substr($arg, 2), 1) }
