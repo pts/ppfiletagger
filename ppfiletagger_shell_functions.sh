@@ -851,18 +851,24 @@ Example: ls | _cmd_grep \"+foo -bar baz\"
 Flags:
 --stdin (default) : Get filenames from stdin rather than command-line.
 --format=filename (filename) : Print filename only.
+--tagquery=<tagquery> : Query to match file tags against.
+  Replaces the <tagquery> argument.
 " if !@ARGV or $ARGV[0] eq "--help";
   my $i = 0;
+  my $tagquery;
   while ($i < @ARGV) {
     my $arg = $ARGV[$i++];
     if ($arg eq "--") { last }
     elsif (substr($arg, 0, 2) ne "--") { --$i; last }
     elsif ($arg eq "--stdin") {}
     elsif ($arg eq "--format=filename") {}
+    elsif ($arg =~ m@\A--tagquery=(.*)@s) { $tagquery = $1 }
     else { die1 "$0: fatal: unknown flag: $arg\n" }
   }
-  die1 "$0: fatal: missing <tagquery> argument\n" if $i >= @ARGV;
-  my $tagquery = $ARGV[$i++];
+  if (!defined($tagquery)) {
+    die1 "$0: fatal: missing <tagquery> argument\n" if $i >= @ARGV;
+    $tagquery = $ARGV[$i++];
+  }
   die1 "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
   my $orterms = parse_tagquery($tagquery);
   my $fn0;
