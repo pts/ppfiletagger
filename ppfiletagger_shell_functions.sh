@@ -23,6 +23,8 @@ my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
                            [\xE0-\xEF] [\x80-\xBF]{2} |
                            [\xF0-\xF4] [\x80-\xBF]{3}) /xo;
 
+my $key0 = "user.mmfs.tags";
+
 # --- xattr
 #
 # The xattr API is a hashref $attr_api:
@@ -162,8 +164,6 @@ sub setxattr_safe($$$$$) {
   $xattr_api->{setxattr}->($filename, $key, $value)
 }
 
-my $key0 = "user.mmfs.tags";
-
 # --- read_tags_file
 
 #** Reads the tag list file (of lines <tag> or <tag>:<description> or
@@ -226,10 +226,10 @@ sub parse_dump($$) {
       my($tagspec, $filename) = ($1, $2);
       $process_func->($filename, $tagspec, undef);
     } elsif ($line =~ m@^#@) {  # Comment.
-    } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+user.mmfs.tags[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
+    } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+\Q$key0\E[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
       my $filename = $sharg_decode->($1);
       $process_func->($filename, "", ".");
-    } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+user.mmfs.tags[ \t]+-v[ \t]+($sharg_re)[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
+    } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+\Q$key0\E[ \t]+-v[ \t]+($sharg_re)[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
       my($tags, $filename) = ($sharg_decode->($1), $sharg_decode->($2));
       $process_func->($filename, $tags, ".");
     } elsif ($line =~ m@^format=(?:[^ ]+)(?= )(.*?) f=(.*)\n@) {  # mediafileinfo form.
@@ -435,10 +435,10 @@ Usage: $0 \x27<tagspec>\x27 [<filename> ...]
 <tagfile> contains:
 * Empty lines and comments starting with # + whitespace.
 * Lines of the colon form: <tagspec> :: <filename>
-* Lines of the setfattr form: setfattr -n user.mmfs.tags -v \x27<tags>\x27 \x27<filename>\x27
-* Lines of the setfattr form: setfattr -x user.mmfs.tags \x27<filename>\x27
+* Lines of the setfattr form: setfattr -n $key0 -v \x27<tags>\x27 \x27<filename>\x27
+* Lines of the setfattr form: setfattr -x $key0 \x27<filename>\x27
 * Lines of the mediafileinfo form: format=... ... tags=<tags> ... f=<filename>
-* Output of: getfattr -hR -e text -n user.mmfs.tags --absolute-names <path>
+* Output of: getfattr -hR -e text -n $key0 --absolute-names <path>
 Valid modes for --stdin:
 * --mode=change is like --prefix=++
 * --mode=overwrite == --mode=set == --set is like --prefix=.
