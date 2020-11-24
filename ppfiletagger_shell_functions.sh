@@ -251,7 +251,6 @@ sub apply_tagspec($$$$) {
   my($tagspec, $mode, $filenames, $is_verbose) = @_;
   # Parse $tagspec (<tagpec>).
   $tagspec = "" if !defined($tagspec);
-  $tagspec =~ s@\A[.]/@@;  # Prepended by old versions of Midnight Commander.
   $tagspec =~ s@\A\s+@@;
   $mode = "++" if !defined($mode) or !length($mode);
   die "fatal: bad mode: $mode\n" if $mode ne "." and $mode ne "+" and $mode ne "++";
@@ -453,6 +452,7 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
     for my $fn0 (@$filenames) { die "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0); }
     ($action, $tagspecmsg) = apply_to_multiple($tagspec, $filenames);
   } elsif (!(@ARGV and $ARGV[0] eq "--stdin")) {
+    shift(@ARGV) if @ARGV and $ARGV[0] eq "--";
     my($tagspec, $filenames) = (shift(@ARGV), \@ARGV);
     ($action, $tagspecmsg) = apply_to_multiple($tagspec, $filenames);
   } else {
