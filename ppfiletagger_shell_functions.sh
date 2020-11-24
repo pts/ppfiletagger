@@ -827,7 +827,21 @@ sub match_tagquery($$) {
   0  # No match.
 }
 
-# --- _cmd_grep : xattr tagquery
+# --- print_find_stats
+
+sub print_find_stats($) {
+  my $action = $_[0];
+  # We print these messages to STDERR (rather than STDOUT starting with `# `),
+  # because some tools do not support extra lines, e.g. `setfattr --restore
+  # <tagfile>`, which restores based on
+  # `_cmd_dump --format=getfattr ... > <tagfile>`
+  # does not support comments starting with `# `.
+  print STDERR "error: had error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
+  my $hcof = defined($HC) ? "$HC of " : "";
+  print STDERR "info: $action tags of $hcof$C file@{[$C==1?q():q(s)]}\n";
+}
+
+# --- _cmd_grep : xattr tagquery print_find_stats
 
 sub _cmd_grep {
   die1 "$0: keeps file names matching a tag query
@@ -850,18 +864,26 @@ Flags:
   die1 "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
   my $orterms = parse_tagquery($tagquery);
   my $fn0;
-  while (defined($fn0=<STDIN>)) {
+  while (defined($fn0 = <STDIN>)) {
     die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
+    if (!-f($fn0)) {
+      my $msg = -e(_) ? "not a file" : "missing";
+      print STDERR "error: $msg: $fn0\n"; $EC++; next;
+    }
     #print "  $fn0\n";
     my $tags = $xattr_api->{getxattr}->($fn0, $key0);
     if (!defined($tags) and !$!{$ENOATTR}) {
       print STDERR "error: $fn0: $!\n"; $EC++
     } else {
       $tags = "" if !defined($tags);
-      print "$fn0\n" if match_tagquery($tags, $orterms);
+      if (match_tagquery($tags, $orterms)) {
+        print "$fn0\n";
+        ++$HC if $tags =~ m@[^\s,]@;
+      }
     }
   }
-  print STDERR "warning: had error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
+  $C += $. - $EC;
+  print_find_stats("found");
 }
 
 # --- format_filename
@@ -1017,19 +1039,7 @@ sub print_all_lines() {
   }
 }
 
-sub print_find_stats($) {
-  my $action = $_[0];
-  # We print these messages to STDERR (rather than STDOUT starting with `# `),
-  # because some tools do not support extra lines, e.g. `setfattr --restore
-  # <tagfile>`, which restores based on
-  # `_cmd_dump --format=getfattr ... > <tagfile>`
-  # does not support comments starting with `# `.
-  print STDERR "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
-  my $hcof = defined($HC) ? "$HC of " : "";
-  print STDERR "info: $action tags of $hcof$C file@{[$C==1?q():q(s)]}\n";
-}
-
-# --- _cmd_dump : xattr get_format_func find_matches
+# --- _cmd_dump : xattr get_format_func find_matches print_find_stats
 
 #** Example: _copyattr() { _cmd_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne "print if s@^rm -f @_copyattr @ and s@ #, keep @ @" >_d.sh; source _d.sh | sh
 sub _cmd_dump {
@@ -1088,7 +1098,7 @@ It follows symlinks.
   print_find_stats("dumped");
 }
 
-# --- _cmd_find : xattr get_format_func find_matches parse_dump tagquery
+# --- _cmd_find : xattr get_format_func find_matches parse_dump tagquery print_find_stats
 
 sub tagquery_to_match_func($) {
   my $tagquery = $_[0];
