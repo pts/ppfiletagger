@@ -845,11 +845,12 @@ sub print_find_stats($) {
 
 sub _cmd_grep {
   die1 "$0: keeps file names matching a tag query
-Usage: $0 [--stdin] \x27<tagquery>\x27
+Usage: $0 [<flag> ...] \x27<tagquery>\x27
 Reads filenames from stdin, writes matching the <tagquery> to stdout.
 Example: ls | _cmd_grep \"+foo -bar baz\"
 Flags:
---stdin : Get filenames from stdin rather than command-line.
+--stdin (default) : Get filenames from stdin rather than command-line.
+--format=filename (filename) : Print filename only.
 " if !@ARGV or $ARGV[0] eq "--help";
   my $i = 0;
   while ($i < @ARGV) {
@@ -857,6 +858,7 @@ Flags:
     if ($arg eq "--") { last }
     elsif (substr($arg, 0, 2) ne "--") { --$i; last }
     elsif ($arg eq "--stdin") {}
+    elsif ($arg eq "--format=filename") {}
     else { die1 "$0: fatal: unknown flag: $arg\n" }
   }
   die1 "$0: fatal: missing <tagquery> argument\n" if $i >= @ARGV;
