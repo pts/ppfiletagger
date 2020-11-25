@@ -16,6 +16,7 @@ $_ = "\n\n\n\n\n\n\n\n" . <<'END';
 # , and then call _mmfs etc. interactively.
 #
 # TODO(pts): Rename mmfs, movemetafs, ppfiletagger.
+# TODO(pts): Add an option reject invalid tagvs to _cmd_grep etc.
 #
 
 # Simple superset of UTF-8 words.
@@ -841,6 +842,39 @@ sub match_tagquery($$) {
   0  # No match.
 }
 
+#** Returns Perl source code matching tags in $_ to $orterms (as returned by
+#** parse_tagquery). Tries to do regexp matches (fast) rather than
+#** match_tagquery (slow Perl code).
+sub get_match_src($$) {
+  my ($orterms, $is_fast) = @_;
+  return q{ $_ = "" if !defined($_); if (match_tagquery($_, $orterms)) { print "$fn0\\n"; ++$HC if m@[^\\s,]@; } } if !$is_fast;
+  return q{} if !@$orterms;  # No file matches.
+  return q{ print "$fn0\\n" } if @$orterms == 1 and !%{$orterms->[0][0]} and !%{$orterms->[0][1]} and !%{$orterms->[0][2]};  # Any file matches.
+  return q{ print "$fn0\\n" if  defined($_) and m@[^\\s,]@; } if @$orterms == 1 and exists($orterms->[0][0]{"*"}) and scalar(keys(%{$orterms->[0][0]})) == 1 and !%{$orterms->[0][1]} and !%{$orterms->[0][2]};  # Tagged   files match.
+  return q{ print "$fn0\\n" if !defined($_) or !m@[^\\s,]@; } if @$orterms == 1 and exists($orterms->[0][1]{"*"}) and scalar(keys(%{$orterms->[0][1]})) == 1 and !%{$orterms->[0][0]} and !%{$orterms->[0][2]};  # Untagged files match.
+  # Matching is slow if $tags ($_) and number of matched tags is long
+  # (because of sequential rescans). If there are more than $count_limit
+  # sequential scans, we fall back to match_tagquery, which is scans once
+  # (but slowly). Benchmarks on files with typical (few) tags and 1 term to
+  # match indicate that match_tagquery is ~3.307 times slower than fast
+  # regexp matches.
+  my($count, $count_limit) = (0, 5);
+  my @orsrcs;
+  for my $orterm (@$orterms) {
+    my($needplus, $needminus, $needother) = @$orterm;
+    if (%$needother) { @orsrcs = (); last }
+    # Benchmarks indicate that it is a bit faster with \Q, and that using a
+    # non-literal regexp (e.g. with `|`) would make it much slower.
+    my @andsrcs = map({ $_ eq "*" ? "m([^,])" : "m(\\Q,$_,)" } sort(keys(%$needplus))),
+        map({ $_ eq "*" ? "!m([^,])" : "!m(\\Q,$_,)" } sort(keys(%$needminus)));
+    $count += @andsrcs;
+    if ($count > $count_limit) { @orsrcs = (); last }
+    push @orsrcs, join(" and ", @andsrcs);
+  }
+  return q{ $_ = "" if !defined($_); print "$fn0\\n" if match_tagquery($_, $orterms) } if !@orsrcs;  # Unoptimized, with match_tagquery.
+  q{ $_ = "" if !defined($_); s@\s+@,@g; $_ = ",$_,"; print "$fn0\\n" if } . join(" or ", @orsrcs)
+}
+
 # --- print_find_stats
 
 sub print_find_stats($) {
@@ -866,15 +900,18 @@ Flags:
 --stdin (default) : Get filenames from stdin rather than command-line.
 --format=filename (filename) : Print filename only.
 --tagquery=<tagquery> : Query to match file tags against.
+--fast : Uses fast matching code, producing simplified stats.
   Replaces the <tagquery> argument.
 " if !@ARGV or $ARGV[0] eq "--help";
-  my $i = 0;
   my $tagquery;
+  my $is_fast = 0;
+  my $i = 0;
   while ($i < @ARGV) {
     my $arg = $ARGV[$i++];
     if ($arg eq "--") { last }
     elsif (substr($arg, 0, 2) ne "--") { --$i; last }
     elsif ($arg eq "--stdin") {}
+    elsif ($arg eq "--fast") { $is_fast = 1 }
     elsif ($arg eq "--format=filename") {}
     elsif ($arg =~ m@\A--tagquery=(.*)@s) { $tagquery = $1 }
     else { die1 "$0: fatal: unknown flag: $arg\n" }
@@ -885,27 +922,35 @@ Flags:
   }
   die1 "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
   my $orterms = parse_tagquery($tagquery);
-  my $fn0;
-  while (defined($fn0 = <STDIN>)) {
-    die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
-    if (!-f($fn0)) {
-      my $msg = -e(_) ? "not a file" : "missing";
-      print STDERR "error: $msg: $fn0\n"; $EC++; next;
-    }
-    #print "  $fn0\n";
-    my $tags = $xattr_api->{getxattr}->($fn0, $key0);
-    if (!defined($tags) and !$!{$ENOATTR}) {
-      print STDERR "error: $fn0: $!\n"; $EC++
-    } else {
-      $tags = "" if !defined($tags);
-      if (match_tagquery($tags, $orterms)) {
-        print "$fn0\n";
-        ++$HC if $tags =~ m@[^\s,]@;
+  # printf STDERR "info: grep query: %s\n", @$orterms ? join(" | ", map { (!%{$_->[0]} and !%{$_->[1]}) ? ":any" : join(
+  #     " ", sort(keys(%{$_->[0]})), map({ "-$_" } sort(keys(%{$_->[1]}))), map({ "*-$_" } sort(keys(%{$_->[2]}))))  } @$orterms) : ":false";
+  my($getxattr, $key02, $ENOATTR2) = ($xattr_api->{getxattr}, $key0, $ENOATTR);
+  local $_ = <<'  ENDMATCH';
+    my $fn0;
+    local $_;
+    while (defined($fn0 = <STDIN>)) {
+      die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
+      if (-f($fn0)) {
+        $_ = $getxattr->($fn0, $key02);  # $tags.
+        if (!defined($_) and !$!{$ENOATTR2}) {
+          print STDERR "error: $fn0: $!\n"; $EC++
+        } else {
+          <MATCH>
+        }
+      } else {
+        my $msg = -e(_) ? "not a file" : "missing";
+        print STDERR "error: $msg: $fn0\n"; $EC++;
       }
     }
-  }
-  $C += $. - $EC;
-  print_find_stats("found");
+    $C += $. - $EC;
+  ENDMATCH
+  # TODO(pts): Add a flag to allow optimizing away I/O (e.g. -f and getxattr) for :any and :false.
+  my $cond;
+  my $match_src = get_match_src($orterms, $is_fast);
+  die1 "$0: assert: <MATCH> not found\n" if !s@<MATCH>@$match_src@g;
+  eval; die $@ if $@;
+  $HC = undef if $is_fast;
+  print_find_stats("grepped");
 }
 
 # --- format_filename
@@ -1115,6 +1160,7 @@ It follows symlinks.
   if ($is_stdin and $match_func == 1 and $format_func == $format_filename and !defined($printfn)) {
     print_all_lines();
   } else {
+    # TODO(pts): Use fast matching if --fast, with or without --stdin.
     find_matches($format_func, $match_func, $printfn, $is_recursive, $is_stdin);
   }
   print_find_stats("dumped");
@@ -1228,6 +1274,9 @@ It follows symlinks.
   } elsif ($stdin_mode == 1 and $match_func == 1 and $format_func == $format_filename and !defined($printfn)) {
     print_all_lines();
   } else {
+    # TODO(pts): Use fast matching with get_match_src if --fast, with or
+    #            without --stdin or --stdin-tagfile. Restrict
+    #            --stdin-tagfile to an autodetected single format.
     find_matches($format_func, $match_func, $printfn, $is_recursive, $stdin_mode);
   }
   print_find_stats("found");
