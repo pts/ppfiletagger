@@ -1427,46 +1427,43 @@ esac\n$funcs);
 }
 $0 = $topcmd;
 
-if (!@ARGV or $ARGV[0] eq "--help") {
-  exit_usage();
-} else {
-  my $cmd = shift(@ARGV);
-  if ($cmd eq "help") {
-    exit_usage() if !@ARGV;
-    if (@ARGV == 1) { $cmd = shift(@ARGV); push @ARGV, "--help" }
-  }
-  {
-    my $cmdp = "_cmd_$cmd";
-    die1 "$0: fatal: no $0 <command>: $cmd\n" if !exists($parts{$cmdp});
-    my %done;
-    my @todo = ($cmdp);
-    for my $part (@todo) {  # Figure out which parts are used.
-      if (!exists($done{$part})) {
-        $done{$part} = 1;
-        for my $part2 (@{$parts{$part}}) {
-          die1 "$0: assert: missing dep: $part2\n" if !exists($parts{$part2});
-          push @todo, $part2;
-        }
+exit_usage() if !@ARGV or $ARGV[0] eq "--help";
+my $cmd = shift(@ARGV);
+if ($cmd eq "help") {
+  exit_usage() if !@ARGV;
+  if (@ARGV == 1) { $cmd = shift(@ARGV); push @ARGV, "--help" }
+}
+{
+  my $cmdp = "_cmd_$cmd";
+  die1 "$0: fatal: no $0 <command>: $cmd\n" if !exists($parts{$cmdp});
+  my %done;
+  my @todo = ($cmdp);
+  for my $part (@todo) {  # Figure out which parts are used.
+    if (!exists($done{$part})) {
+      $done{$part} = 1;
+      for my $part2 (@{$parts{$part}}) {
+        die1 "$0: assert: missing dep: $part2\n" if !exists($parts{$part2});
+        push @todo, $part2;
       }
     }
-    my @src = (substr($_, 0, $partps[1]));
-    for (my $i = 2; $i < @partps; $i += 2) {  # Prepare only used code parts.
-      my($part, $pos, $endpos) = ($partps[$i - 2], $partps[$i - 1], $partps[$i + 1]);
-      my $partsrc = substr($_, $pos, $endpos - $pos);
-      $partsrc =~ y@\n@@cd if !exists($done{$part});
-      push @src, $partsrc;
-    }
-    $_ = join("", @src);
   }
-  eval; die $@ if $@;  # Delayed and partial parsing of actual Perl code.
-  my $func; { no strict qw(vars); $func = \&{__PACKAGE__ . "::_cmd_$cmd" } }
-  if (!defined(&$func)) {
-    print STDERR "$0: assert: no command func: $cmd\n";
-    exit(1);
+  my @src = (substr($_, 0, $partps[1]));
+  for (my $i = 2; $i < @partps; $i += 2) {  # Prepare only used code parts.
+    my($part, $pos, $endpos) = ($partps[$i - 2], $partps[$i - 1], $partps[$i + 1]);
+    my $partsrc = substr($_, $pos, $endpos - $pos);
+    $partsrc =~ y@\n@@cd if !exists($done{$part});
+    push @src, $partsrc;
   }
-  $0 .= " $cmd";
-  $func->(@ARGV);
-  exit 1 if $EC;
+  $_ = join("", @src);
 }
+eval; die $@ if $@;  # Delayed and partial parsing of actual Perl code.
+my $func; { no strict qw(vars); $func = \&{__PACKAGE__ . "::_cmd_$cmd" } }
+if (!defined(&$func)) {
+  print STDERR "$0: assert: no command func: $cmd\n";
+  exit(1);
+}
+$0 .= " $cmd";
+$func->(@ARGV);
+exit 1 if $EC;
 
 __END__
