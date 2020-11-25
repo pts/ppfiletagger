@@ -61,7 +61,10 @@ sub get_archname() {
   ""
 }
 
-sub get_linux_xattr_syscalls() {
+#** Supports Linux (linux) and macOS (darwin) only.
+sub get_xattr_syscalls() {
+  # https://opensource.apple.com/source/xnu/xnu-4570.41.2/bsd/kern/syscalls.master.auto.html
+  return (234, 238, 236, undef) if $^O eq "darwin";
   my $archname = get_archname();
   # https://syscalls.w3challs.com/
   if ($archname =~ m@\A(?:x86_64|amd64)-@) {
@@ -76,7 +79,7 @@ sub get_linux_xattr_syscalls() {
     return (172, 181, 169, 189)
   }
   # This works on Linux, but `require "syscall.ph" is quite slow.
-  # It does not work in FreeBSD, because FreeBSD has extattr_set_file(2) etc.
+  # It does not work on FreeBSD, because FreeBSD has extattr_set_file(2) etc.
   my @result = eval { package syscall; require "syscall.ph"; &syscall::SYS_getxattr, &syscall::SYS_removexattr, &syscall::SYS_setxattr, &syscall::SYS_uname };
   die1 "$0: fatal: setxattr or similar syscalls not available\n" if @result != 4;
   @result
@@ -87,13 +90,14 @@ my $ENOATTR = exists($!{ENOATTR}) ? "ENOATTR" : "ENODATA";
 
 sub get_xattr_api() {
   my $xattr_api = {};
-  if ($^O eq "linux") {
-    my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr, $SYS_uname) = get_linux_xattr_syscalls();
+  if ($^O eq "linux" or $^O eq "darwin") {
+    my($SYS_getxattr, $SYS_removexattr, $SYS_setxattr, $SYS_uname) = get_xattr_syscalls();
     $xattr_api->{getxattr} = sub {  # ($$).
       my($filename, $key) = @_;
       my $result = "\0" x 65535;
       # For syscall, $key must be a variable, it cannot be a read-only literal.
-      my $got = syscall($SYS_getxattr, $filename, $key, $result, length($result), 0);
+      # macOS ("darwin") requires the extra 0 argument.
+      my $got = syscall($SYS_getxattr, $filename, $key, $result, length($result), 0, 0);
       if (defined($got) and $got >= 0) {
         substr($result, $got) = "";
         #$result =~ s@\0.*@@s;  # Not needed anymore.
@@ -104,25 +108,27 @@ sub get_xattr_api() {
     };
     $xattr_api->{removexattr} = sub {  # ($$).
       my($filename, $key) = @_;
-      my $got = syscall($SYS_removexattr, $filename, $key);
+      my $got = syscall($SYS_removexattr, $filename, $key, 0);
       (defined($got) and $got == 0) ? 1 : undef
     };
     $xattr_api->{setxattr} = sub {  # ($$$).
       my($filename, $key, $value) = @_;
-      my $got = syscall($SYS_setxattr, $filename, $key, $value, length($value), 0);
+      my $got = syscall($SYS_setxattr, $filename, $key, $value, length($value), 0, 0);
       (defined($got) and $got == 0) ? 1 : undef
     };
-    my $utsname = "\0" x 390;
-    my $got = syscall($SYS_uname, $utsname);
-    die1 "$0: fatal: uname: $!\n" if !defined($got) or $got != 0;
-    # my($sys, $node, $release, $version, $machine, $domain) = unpack("Z65Z65Z65Z65Z65Z65", $utsname);
-    # die1 "($sys)($node)($release)($version)($machine)($domain)\n";
-    # Typical $release is: 4.9.0-6-amd64.
-    my $release = unpack("x65x65Z65", $utsname);
-    # There is a reiserfs bug on Linux 2.6.31: cannot reliably set the
-    # extended attribute to a shorter value. Workaround: set it to the empty
-    # value (or remove it) first. Workaround is enabled for Linux <3.x.
-    $xattr_api->{need_setxattrw} = 1 if $release !~ m@\A(\d+)[.]@ or $1 < 3;
+    if ($^O eq "linux") {
+      my $utsname = "\0" x 390;
+      my $got = syscall($SYS_uname, $utsname);
+      die1 "$0: fatal: uname: $!\n" if !defined($got) or $got != 0;
+      # my($sys, $node, $release, $version, $machine, $domain) = unpack("Z65Z65Z65Z65Z65Z65", $utsname);
+      # die1 "($sys)($node)($release)($version)($machine)($domain)\n";
+      # Typical $release is: 4.9.0-6-amd64.
+      my $release = unpack("x65x65Z65", $utsname);
+      # There is a reiserfs bug on Linux 2.6.31: cannot reliably set the
+      # extended attribute to a shorter value. Workaround: set it to the empty
+      # value (or remove it) first. Workaround is enabled for Linux <3.x.
+      $xattr_api->{need_setxattrw} = 1 if $release !~ m@\A(\d+)[.]@ or $1 < 3;
+    }
   } else {
     eval { require File::ExtAttr };  # https://metacpan.org/pod/File::ExtAttr
     die1 "$0: fatal: please install Perl module File::ExtAttr\n" if $@;
