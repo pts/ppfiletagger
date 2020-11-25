@@ -1429,13 +1429,7 @@ $0 = $topcmd;
 
 if (!@ARGV or $ARGV[0] eq "--help") {
   exit_usage();
-} elsif ($ARGV[0] eq "--load") {
 } else {
-  my $is_mcmenu = $ARGV[0] eq "--mcmenu";
-  if ($is_mcmenu) {
-    shift(@ARGV);
-    exit_usage() if !@ARGV;
-  }
   my $cmd = shift(@ARGV);
   if ($cmd eq "help") {
     exit_usage() if !@ARGV;
