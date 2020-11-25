@@ -766,58 +766,72 @@ Usage: $0 <filename>\n" if @ARGV != 1;
 #** * -*"             : anything without tags
 #** * See docs for more info.
 #** @param $_[0] $tagquery String containing a <tagquery>.
-#** @return \@orterms, a list of [$needplus, $needminus, $ignore].
+#** @return \@orterms, a list of [$needplus, $needminus, $needother].
 sub parse_tagquery($) {
   my $tagquery = $_[0];
   my @orterms;
+  # TODO(pts): Build it faster if only positive tags ($tagv) + \s+ .
   die1 "$0: fatal: parentheses not supported in <tagquery>: $tagquery\n" if $tagquery =~ m@[()]@;
   die1 "$0: fatal: quotes not supported in <tagquery>: $tagquery\n" if $tagquery =~ m@[\x27"]@;
-  for my $termlist (split /\|/, $tagquery) {
+  my @termlists = split(/\|/, $tagquery);
+  die1 "$0: fatal: empty <tagquery>\n" if !@termlists;
+  my($has_tagged, $has_none) = (0, 0);
+  for my $termlist (@termlists) {
     pos($termlist) = 0;
-    my($needplus, $needminus, $ignore) = ({}, {}, {});
+    my(%needplus, %needminus, %needother);
     my $had_any = 0;
     while ($termlist=~/(\S+)/g) {
       my $tagv = $1;
       if ($tagv =~ s@^-@@) {
-        $needminus->{$tagv} = 1;
+        $needminus{$tagv} = 1;
         next if $tagv eq "*";
       } elsif ($tagv =~ s@^[*]-@@) {
-        $ignore->{$tagv} = 1;
-        $needplus->{"*"} = 1;
+        $needother{$tagv} = 1;
+        $needplus{"*"} = 1;
       } elsif ($tagv =~ m@^:@) {
         if ($tagv eq ":none") {
-          $needminus->{"*"} = 1; next
+          $needminus{"*"} = 1; next
         } elsif ($tagv eq ":tagged") {
-          $needplus->{"*"} = 1; next
+          $needplus{"*"} = 1; next
         } elsif ($tagv eq ":any") {
+          # Specify :false (which does not match anything) as: * -*
           $had_any = 1; next
         }
       } else {
-        $needplus->{$tagv} = 1;
+        $needplus{$tagv} = 1;
         next if $tagv eq "*";
       }
       die1 "$0: fatal: invalid tagv syntax: $tagv\n" if $tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@o;
     }
-    die1 "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !($had_any or %$needplus or %$needminus);
-    #print STDERR "info: query spec needplus=(@{[sort keys%$needplus]}) needminus=(@{[sort keys%$needminus]}) ignore=(@{[sort keys%$ignore]})\n";
-    push @orterms, [$needplus, $needminus, $ignore];
+    die1 "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !($had_any or %needplus or %needminus);
+    if (exists($needminus{"*"})) {
+      next if %needplus;  # FYI %needplus implies %needother.
+      %needminus = ("*" => 1);
+    }
+    next if grep { exists($needplus{$_}) } keys(%needminus);
+    delete $needplus{"*"} if exists($needplus{"*"}) and scalar(keys(%needplus)) > 1 and !%needother;
+    $has_tagged = 1 if exists($needplus {"*"}) and scalar(keys(%needplus)) == 1 and !%needminus and !%needother;
+    $has_none   = 1 if exists($needminus{"*"});
+    $has_tagged = $has_none = 1 if !%needplus and !%needminus;
+    #print STDERR "info: query spec needplus=(@{[sort(keys(%needplus))]}) needminus=(@{[sort(keys(%needminus))]}) needother=(@{[sort(keys(%needother))]})\n";
+    push @orterms, [\%needplus, \%needminus, \%needother];
   }
-  die1 "$0: fatal: empty <tagquery>\n" if !@orterms;
+  @orterms = ([$has_none ? {} : {"*" => 1}, {}, {}]) if $has_tagged;
   \@orterms
 }
 
 sub match_tagquery($$) {
   my($tags, $orterms) = @_;
   my $ok_p = 0;
-  for my $term (@$orterms) {
-    my($needplus, $needminus, $ignore) = @$term;
+  for my $orterm (@$orterms) {
+    my($needplus, $needminus, $needother) = @$orterm;
     my %np=%$needplus;
     #print "($tags)\n";
     my $tagc=0;
     pos($tags) = 0;
     while ($tags=~/([^\s,]+)/g) {
       my $tag=$1;
-      $tagc++ if !$ignore->{$tag};
+      $tagc++ if !$needother->{$tag};
       delete $np{$tag};
       if ($needminus->{$tag} or $needminus->{"*"}) { %np = (1 => 1); last }
     }
