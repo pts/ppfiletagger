@@ -1,5 +1,5 @@
-README for ppfiletagger
-"""""""""""""""""""""""
+ppfiletagger: file tagging and search by tag for Linux
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ppfiletagger lets you tag your Linux files and then search for filenames
 matching the tags you specify. ppfiletagger is a collection of Linux
 software (including a Linux 2.6 kernel module and Python utilities).
