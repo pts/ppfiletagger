@@ -234,10 +234,10 @@ sub parse_dump($$) {
       my($tagspec, $filename) = ($1, $2);
       $process_func->($filename, $tagspec, undef);
     } elsif ($line =~ m@^#@) {  # Comment.
-    } elsif ($line =~ m@^setfattr[ \t]+-x[ \t]+\Q$key0\E[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
+    } elsif ($line =~ m@^(?:setfattr[ \t]+-x|xattr[ \t]+-d)[ \t]+\Q$key0\E[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
       my $filename = $sharg_decode->($1);
       $process_func->($filename, "", ".");
-    } elsif ($line =~ m@^setfattr[ \t]+-n[ \t]+\Q$key0\E[ \t]+-v[ \t]+($sharg_re)[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
+    } elsif ($line =~ m@^(?:setfattr[ \t]+-n|xattr[ \t]+-w)[ \t]+\Q$key0\E[ \t]+-v[ \t]+($sharg_re)[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
       my($tags, $filename) = ($sharg_decode->($1), $sharg_decode->($2));
       $process_func->($filename, $tags, ".");
     } elsif ($line =~ m@^format=(?:[^ ]+)(?= )(.*?) f=(.*)\n@) {  # mediafileinfo form.
@@ -446,12 +446,14 @@ Usage: $0 [--] \x27<tagspec>\x27 [<filename> ...]
 * Lines of the colon form: <tagspec> :: <filename>
 * Lines of the setfattr form: setfattr -n $key0 -v \x27<tags>\x27 \x27<filename>\x27
 * Lines of the setfattr form: setfattr -x $key0 \x27<filename>\x27
+* Lines of the xattr form: xattr -w $key0 \x27<tags>\x27 \x27<filename>\x27
+* Lines of the xattr form: xattr -d $key0 \x27<filename>\x27
 * Lines of the mediafileinfo form: format=... ... tags=<tags> ... f=<filename>
 * Output of: getfattr -hR -e text -n $key0 --absolute-names <path>
 Flags:
 --stdin : If <tagspec> is specified, then get filenames from stdin rather
   than command-line. Otherwise same as --stdin-tagfile.
---stdin-tagfile : Read <tagfile> (as sh, colon, getfattr, mfi) from stdin.
+--stdin-tagfile : Read <tagfile> from stdin.
 --mode=change : Like --prefix=++
 --mode=overwrite | --mode=set | --set : Like --prefix=.
 --mode=merge | --merge : Like --prefix=+
@@ -990,6 +992,11 @@ sub get_format_func($;$) {
     length($tags) ?
         "setfattr -n $key0 -v " . fnq($tags) . " -- " . fnq($filename) . "\n" :
         "setfattr -x $key0 -- " . fnq($filename) . "\n"
+  } : ($format eq "xattr") ? sub {
+    my($tags, $filename) = @_;
+    length($tags) ?
+        "xattr -w $key0 -v " . fnq($tags) . " " . fnq($filename) . "\n" :
+        "xattr -d $key0 " . fnq($filename) . "\n"
   } : ($format eq "colon") ? sub {
     my($tags, $filename) = @_;
     "$tags :: $filename\n"
@@ -1025,6 +1032,7 @@ sub get_format_func($;$) {
 
 my $format_usage =
 "--format=sh (default) : Print a series of setfattr commands.
+--format=xattr: Print a series of xattr commands.
 --format=colon: Print in the colon format: <tags> :: <filename>
 --format=getfattr : Print the same output as: getfattr -e text
 --format=mfi : Print in the mediafileinfo format.
@@ -1203,7 +1211,7 @@ Flags:
 --print-empty=no | --tagged : Same as --tagquery=:tagged
 --untagged : Same as --tagquery=:none , prints files without tags.
 --stdin : Get filenames from stdin rather than command-line.
---stdin-tagfile : Read <tagfile> (as sh, colon, getfattr, mfi) from stdin.
+--stdin-tagfile : Read <tagfile> from stdin.
 $format_usage_for_find
 --recursive=yes (default w/o --stdin) : Dump directories, recursively.
 --recursive=no : Dump files only.
