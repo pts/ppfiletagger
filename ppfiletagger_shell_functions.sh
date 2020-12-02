@@ -256,7 +256,7 @@ sub parse_dump($$) {
 
 # --- _cmd_tag : xattr read_tags_file parse_dump
 
-my $known_tags = read_tags_file();
+my $known_tags;
 my $pmtag_re = qr/(---|[-+]?)((?:v:)?(?:$tagchar_re)+)/o;
 
 sub apply_tagspec($$$$) {
@@ -298,7 +298,7 @@ sub apply_tagspec($$$$) {
     if ($1 eq "---") {
       push @mtags, $tag;  # Force remove, do not check %known_tags.
       $fmtags_hash{$tag} = 1;
-    } elsif (!exists $known_tags->{$tag}) {
+    } elsif (defined($known_tags) and !exists($known_tags->{$tag})) {
       push @unknown_tags, $tag
     } elsif ($1 eq "-") {
       push @mtags, $tag
@@ -454,6 +454,7 @@ Flags:
 --stdin : If <tagspec> is specified, then get filenames from stdin rather
   than command-line. Otherwise same as --stdin-tagfile.
 --stdin-tagfile : Read <tagfile> from stdin.
+--any-tag-ok : Do not read the known-tags file, accept any tag.
 --mode=change : Like --prefix=++
 --mode=overwrite | --mode=set | --set : Like --prefix=.
 --mode=merge | --merge : Like --prefix=+
@@ -466,16 +467,20 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
     # Read filenames from stdin, apply tags in $ARGV[1];
     my($tagspec, $filenames) = ($ARGV[-1], [<STDIN>]);
     for my $fn0 (@$filenames) { die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0); }
+    $known_tags = read_tags_file();
     ($action, $tagspecmsg) = apply_to_multiple($tagspec, $filenames);
   } elsif (@ARGV and ($ARGV[0] eq "--" ? (@ARGV > 1 and substr($ARGV[1], 0, 2) ne "--") : substr($ARGV[0], 0, 2) ne "--")) {
+    # Apply tags in $ARGV[0] to the files with filenames in @ARGV[1..].
     shift(@ARGV) if @ARGV and $ARGV[0] eq "--";
     # Midnight Commander (mc) prepends ./ to @ARGV elements starting with -.
     my($tagspec, $filenames) = (shift(@ARGV), \@ARGV);
+    $known_tags = read_tags_file();
     ($action, $tagspecmsg) = apply_to_multiple($tagspec, $filenames);
-  } else {
+  } else {  # Read <tagfile> (containing filename--tags pairs) from stdin, apply those tags.
     my $mode;
     my $tagspec_prefix = "";
     my $stdin_mode = 0;
+    my $do_read_tags_file = 1;
     my $i = 0;
     while ($i < @ARGV) {
       my $arg = $ARGV[$i++];
@@ -487,6 +492,7 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
       elsif ($arg eq "--mode=merge" or $arg eq "--mode=+" or $arg eq "--merge") { $mode = "+" }
       elsif ($arg =~ m@\A--mode=@) { die1 "$0: fatal: unknown flag value: $arg\n" }
       elsif ($arg =~ m@\A--prefix=(.*)@s) { $tagspec_prefix = "$1 " }
+      elsif ($arg eq "--any-tag-ok") { $do_read_tags_file = 0 }
       else { die1 "$0: fatal: unknown flag: $arg\n" }
     }
     die1 "$0: fatal: too many command-line arguments\n" if $i != @ARGV;
@@ -495,6 +501,7 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
       my($filename, $tags, $default_mode) = @_;
       apply_tagspec($tagspec_prefix . $tags, ($mode or $default_mode), [$filename], 1);
     };
+    $known_tags = read_tags_file() if $do_read_tags_file;
     parse_dump(\*STDIN, $process_func);
   }
   print "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
