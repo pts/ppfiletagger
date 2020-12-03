@@ -801,6 +801,7 @@ sub parse_tagquery($) {
     while ($termlist=~/(\S+)/g) {
       my $tagv = $1;
       if ($tagv =~ s@^-@@) {
+        $tagv = "*" if $tagv eq ":tag";
         $needminus{$tagv} = 1;
         next if $tagv eq "*";
       } elsif ($tagv =~ s@^[*]-@@) {
@@ -809,7 +810,7 @@ sub parse_tagquery($) {
       } elsif ($tagv =~ m@^:@) {
         if ($tagv eq ":none") {
           $needminus{"*"} = 1; next
-        } elsif ($tagv eq ":tagged") {
+        } elsif ($tagv eq ":tagged" or $tagv eq ":tag") {
           $needplus{"*"} = 1; next
         } elsif ($tagv eq ":any") {
           # Specify :false (which does not match anything) as: * -*
