@@ -33,6 +33,10 @@ PTAG_TO_SQLITEWORD_DICT = {  # Duplicates base.py.
   '_': '8',
 }
 
+# Simple superset of UTF-8 words.
+# Corresponds to $tagchar_re in ppfiletagger_shell_functions.sh.
+TAGVM_RE = re.compile(r'-?(?:v:)?(?:\w|[\xC2-\xDF][\x80-\xBF]|[\xE0-\xEF][\x80-\xBF]{2}|[\xF0-\xF4][\x80-\xBF]{3})+\Z')
+
 
 def QueryToWordData(query):
   """Return SQLite fulltext query converted to filewords.worddata."""
@@ -109,6 +113,8 @@ class Matcher(object):
         raise BadQuery('query term with double dash: ' + term)
       elif term == '-':
         raise BadQuery('query term is a dash')
+      elif not TAGVM_RE.match(term):
+        raise BadQuery('invalid tagv syntax: ' + term.lstrip('-'))
       else:
         # Negative tags (starting with '-') are also allowed.
         # TODO(pts): Filter unknown tags.
