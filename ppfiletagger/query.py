@@ -108,9 +108,9 @@ class Matcher(object):
     has_negative_tag = False
     for term in terms:
       # TODO(pts): Add ':size>100' as a valid query term.
-      if term in ('*', ':tag'):
+      if term in ('*', ':tag', ':tagged'):
         self.match_with_tag = True
-      elif term in ('-*', '-:tag'):
+      elif term in ('-*', '-:tag', ':none'):
         self.match_without_tag = True
       elif term in (':vid', ':video', ':film', ':movie'):
         self.AllowExts(self.VIDEO_EXTS)
@@ -120,6 +120,8 @@ class Matcher(object):
         self.AllowExts(self.IMAGE_EXTS)
       elif term in ('-:pic', '-:picture', '-:img', '-:image'):
         self.DisallowExts(self.IMAGE_EXTS)
+      elif term == ':any':
+        raise BadQuery('unsupperted query term: ' + term)
       elif self.INVALID_TERM_CHAR_RE.search(term):
         raise BadQuery('query term with forbidden char: ' + term)
       elif ':' in term:
