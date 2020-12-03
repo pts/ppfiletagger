@@ -24,28 +24,37 @@ System requirements
 ~~~~~~~~~~~~~~~~~~~
 ppfiletagger needs:
 
-* A Linux system running kernel 2.4 or later.
-* Filesystems with extended attribute support (such as ext2, ext3, ext4, xfs
-  and reiserfs), and user.* extended attributes turned on (e.g.
-  `mount -o remount,user_xattr /').
-* Python 2.4.
-* libattr1 (tried with 2.4.32; on Debian Etch: apt-get install libattr1;
-  included, linked against python-2.4.4 and libc-2.3.6).
-* Recommeded: attr (command setfattr; on Debian Etch: apt-get install attr).
-* The sqlite3 command-line tool is not needed, but an executable is
-  provided for debugging. The executable sqlite3-3.6.7.bin contains
-  SQLite version 3.6.7, it is compiled for Linux i386, and it links against
-  glibc-2.3.6. See more sqlite3 executables for Linux and macOS in
-  https://github.com/pts/pts-sqlite3-tool-build/releases .
-* pysqlite (included in ppfiletagger/good/pysqlite2/_sqlite.so, contains
-  a stripped-down SQLite 3.6.7, linked against python-2.4.4 and libc-2.3.6).
-* pyxattr (linked against python-2.4.4 and static libattr1-2.4.32).
-* For the incremental rescanning feature, the provided Linux kernel module
+* A Linux system running kernel 2.4 or later. (Known to with 2.4.32 -- 5.9.12.)
+  ppfiletagger_shell_functions.sh also works on macOS, Mac OS X 10.5 or later.
+* A filesystem which supports extended attributes. On Linux, ext2, ext3,
+  ext4, ZFS, Btrfs, JFS, XFS etc. On macOS, HFS+ and APFS. On Windows, NTFS.
+  Unfortunately, FAT, VFAT, FAT32 and exFAT don't support extended
+  attributes.
+* On Linux, user.* extended attributes enabled. Do it for / like this:
+  sudo mount -o remount,user_xattr /
+* For ppfiletagger_shell_functions.sh, Perl >= 5.8.2 (2003-11-05). Such a Perl
+  is usually installed on Linux and macOS by default.
+* For full index building (rmtimescan) and fast query running
+  (rmtimequery):
+  * Python 2.4, 2.5, 2.6 or 2.7. Tested with Python 2.4.
+  * libattr1 (tried with 2.4.32; on Debian Etch: apt-get install libattr1;
+    included, linked against python-2.4.4 and libc-2.3.6).
+  * pysqlite (included in ppfiletagger/good/pysqlite2/_sqlite.so, contains
+    a stripped-down SQLite 3.6.7, linked against python-2.4.4 and libc-2.3.6).
+  * pyxattr (linked against python-2.4.4 and static libattr1-2.4.32).
+* For incremental index building, the provided Linux kernel module
   rmtimeup.ko has to be loaded. It needs:
-** A Linux system running kernel 2.6 on i386 (x86) 32-bit architecture.
-   Other architectures, including 64-bit (x86-64, amd64, ia64) are not
-   supported. See more in rmtimeup/rmtimeup.txt .
-** Kernel loadable module support (LKM, CONFIG_MODULES=y).
+  * A Linux system running kernel 2.6 on i386 (x86) 32-bit architecture.
+    Other architectures, including 64-bit (x86-64, amd64, ia64) are not
+    supported. See more in rmtimeup/rmtimeup.txt .
+  * Kernel loadable module support (LKM, CONFIG_MODULES=y).
+* Optional, for debugging only:
+  * attr (commands setfattr and getfattr).
+    On Debian Etch: apt-get install attr
+  * sqlite3 command-line tool. The provided executable sqlite3-3.6.7.bin
+    contains SQLite version 3.6.7, it is compiled for Linux i386, and it
+    links against glibc-2.3.6. See more sqlite3 executables for Linux and
+    macOS in https://github.com/pts/pts-sqlite3-tool-build/releases .
 
 How to install and use
 ~~~~~~~~~~~~~~~~~~~~~~
