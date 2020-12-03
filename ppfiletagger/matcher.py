@@ -76,7 +76,7 @@ class Matcher(object):
       raise TypeError
     self.do_assume_tags_match = True  # True indicates that the SQLite MATCH operator can determine the result, no need additional checks in self.DoesMatch.
     self.wordlistc = None
-    self.match_with_tag = None
+    self.match_with_tag = False
     self.match_without_tag = False
     self.with_any_exts = None  # Allow anything.
     self.without_exts = set()  # Don't disallow anything.
@@ -124,18 +124,18 @@ class Matcher(object):
           self.with_tags.add(term)
         pntags.append(term)
 
+    if self.match_without_tag:
+      if self.with_tags:
+        self.match_with_tag = True
+        self.with_tags.clear()
+      self.without_tags.clear()  # Optimization.
     if self.with_tags:
       self.match_with_tag = True
       self.wordlistc = QueryToWordData(' '.join(pntags))
       self.do_assume_tags_match = True
     else:
       self.wordlistc = ''
-
-      if self.without_tags:
-        if self.match_with_tag is None:
-          # Ask for explicit '*' to avoid accidental slow queries.
-          raise BadQuery(
-              'please specify \'*\' for negative queries (may be slow)')
+      if self.without_tags or self.match_without_tag:
         # SQLite3 raises
         # sqlite.OperationalError('SQL logic error or missing database') if
         # only negative tags are specified in a fulltext index.
