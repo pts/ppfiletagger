@@ -32,8 +32,13 @@ ppfiletagger needs:
 * libattr1 (tried with 2.4.32; on Debian Etch: apt-get install libattr1;
   included, linked against python-2.4.4 and libc-2.3.6).
 * Recommeded: attr (command setfattr; on Debian Etch: apt-get install attr).
-* SQLite (version 3.6.7 included, static, linked against libc-2.3.6).
-* pysqlite (included, linked against python-2.4.4 and libc-2.3.6).
+* The sqlite3 command-line tool is not needed, but an executable is
+  provided for debugging. The executable sqlite3-3.6.7.bin contains
+  SQLite version 3.6.7, it is compiled for Linux i386, and it links against
+  glibc-2.3.6. See more sqlite3 executables for Linux and macOS in
+  https://github.com/pts/pts-sqlite3-tool-build/releases .
+* pysqlite (included in ppfiletagger/good/pysqlite2/_sqlite.so, contains
+  a stripped-down SQLite 3.6.7, linked against python-2.4.4 and libc-2.3.6).
 * pyxattr (linked against python-2.4.4 and static libattr1-2.4.32).
 * For the incremental rescanning feature, the provided Linux kernel module
   rmtimeup.ko has to be loaded. It needs:
