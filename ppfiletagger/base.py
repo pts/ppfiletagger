@@ -59,8 +59,8 @@ class RootInfo(object):
 
   WORDDATA_NONWORDCHAR_RE = re.compile(r'[^a-z0-9:_ ]')
   WORDDATA_SPLIT_WORD_RE = re.compile(r'[^\s?!.,;\[\](){}<>"\']+')
-  PTAG_TO_SQLITEWORD_RE = re.compile(r'[6789:_]')
-  PTAG_TO_SQLITEWORD_DICT = {
+  PTAG_TO_SQLITEWORD_RE = re.compile(r'[6789:_]')  # Duplicates matcher.py.
+  PTAG_TO_SQLITEWORD_DICT = {  # Duplicates matcher.py.
     '6': '66',
     '7': '65',
     '8': '64',
