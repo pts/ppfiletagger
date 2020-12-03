@@ -8,14 +8,13 @@ my($C, $KC, $EC, $HC) = (0, 0, 0, 0);
 $_ = "\n\n\n\n\n\n\n\n" . <<'END';
 
 #
-# ppfiletagger_shell_functions.sh
+# ppfiletagger_shell_functions.sh: command-line tool for file tag manipulation and search
 # by pts@fazekas.hu at Sat Jan 20 22:29:43 CET 2007
 #
 # For unlimited argv support, load the shell functions as:
 # eval "$(perl -x .../ppfiletagger_shell_functions.sh --load)"
-# , and then call _mmfs etc. interactively.
+# , and then call lfo etc. interactively.
 #
-# TODO(pts): Rename mmfs, movemetafs, ppfiletagger.
 # TODO(pts): Add an option reject invalid tagvs to _cmd_grep etc.
 # TODO(pts): Add descript.ion support as a fallback for e.g. FAT32 and exFAT filesystems.
 #
@@ -25,7 +24,9 @@ my $tagchar_re = qr/(?:\w| [\xC2-\xDF] [\x80-\xBF] |
                            [\xE0-\xEF] [\x80-\xBF]{2} |
                            [\xF0-\xF4] [\x80-\xBF]{3}) /x;
 
-my $key0 = "user.mmfs.tags";
+my $key0 = ($0 eq "_mmfs" or $0 eq "mmfs" or $0 eq "ppfiletagger") ?
+    "user.mmfs.tags" :  # Legacy.
+    "user.mmfs.tags";
 
 # --- xattr
 #
@@ -1402,16 +1403,20 @@ while (m@\n# ---([ \t]*(\w+)(?: :[ \t]*([\w \t]*)|[ \t]*)(?=\n))?@g) {
 my @cmds;
 while (m@\nsub[ \t]+(_cmd_(\w+))[ \t({]@g) { push @cmds, $2 if exists($parts{$1}) }
 
-my $topcmd = $0;
-$topcmd =~ s@\A.*/@@;
-$topcmd =~ s@[.][^.]+\Z(?!\n)@@;
-$topcmd =~ s@_shell_functions\Z(?!\n)@@;
-$topcmd =~ s@\W@_@g;  # - is not allowed in shell function name.
-$topcmd = "_mmfs" if !length($topcmd) or $topcmd eq "ppfiletagger";  # Legacy.
+my $topcmd = (@ARGV and $ARGV[0] =~ s@\A--0=@@) ? shift(@ARGV) : undef;
+if (!defined($topcmd)) {
+  $topcmd = $0;
+  $topcmd =~ s@\A.*/@@;
+  $topcmd =~ s@[.][^.]+\Z(?!\n)@@;
+  $topcmd =~ s@_shell_functions\Z(?!\n)@@;
+  $topcmd =~ s@\W@_@g;  # - is not allowed in shell function name.
+  $topcmd = "lfo" if !length($topcmd) or $topcmd eq "locfileorg";
+  $topcmd = "_mmfs" if $topcmd eq "ppfiletagger" or $topcmd eq "mmfs";  # Legacy.
+}
 
 sub exit_usage() {
   print STDERR "$0: file tagging and search-by-tag tool\n" .
-      "Usage: _${topcmd} <command> [<arg> ...]\n" .
+      "Usage: ${topcmd} <command> [<arg> ...]\n" .
       "Supported <command>s: @cmds\n";
   exit(1);
 }
@@ -1425,6 +1430,7 @@ if (@ARGV == 1 and $ARGV[0] eq "--load") {
   die "$0: fatal: __END__ not found in script\n" if !m@\n__END__\n@g;
   substr($_, pos($_)) = "";
   s@'@'\\''@g;
+  $topcmd =~ s@\W@_@g;  # - is not allowed in shell function name.
   # TODO(pts): Add bash and zsh completion in addition to these functions.
   my $funcs = join("", map { "${topcmd}_$_() { ${topcmd} $_ \"\$@\"; }\n" } @cmds);
   # Unlimited argv support (using set -x) works in bash, zsh, ksh, pdksh, lksh,
