@@ -103,7 +103,7 @@ class Matcher(object):
         raise BadQuery('unsupperted query term: ' + term)
       elif self.INVALID_TERM_CHAR_RE.search(term):
         raise BadQuery('query term with forbidden char: ' + term)
-      elif ':' in term:
+      elif ':' in term and not ((term.startswith('v:') and term.rfind(':') == 1) or (term.startswith('-v:') and term.rfind(':') == 2)):
         raise BadQuery('unknown special query term: ' + term)
       elif term.startswith('--'):
         raise BadQuery('query term with double dash: ' + term)
