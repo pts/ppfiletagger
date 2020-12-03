@@ -206,7 +206,7 @@ if __name__ == '__main__':
     sys.stderr.write('Usage: %s <tagquery> ["<filetags>" <filename> ...]\n' % sys.argv[0])
     sys.exit(1)
   matcher = Matcher(sys.argv[1])
-  keys = sorted(('do_assume_tags_match', 'wordlistc', 'match_with_tag', 'match_without_tag', 'with_any_exts', 'without_exts', 'is_impossible'))
+  keys = sorted(('do_assume_tags_match', 'wordlistc', 'match_with_tag', 'match_without_tag', 'with_any_exts', 'without_exts', 'is_impossible', 'with_tags', 'without_tags'))
   for key in sorted(keys):
     if key == 'is_impossible':
       value = matcher.IsImpossible()
