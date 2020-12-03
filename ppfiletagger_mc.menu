@@ -3,11 +3,11 @@
 # would return.
 
 t       Tag files
-	exec perl -x "$HOME"/zsh/ppfiletagger_shell_functions.sh --sa 9>&0 <<'END'
+	exec perl -x "$HOME"/prg/ppfiletagger/ppfiletagger_shell_functions.sh --sa 9>&0 <<'END'
 	+ : - --mcmenu --cd=%d tag -- %{What tags to add or -remove} %s
 	END
 
 s       Show tags on files
-	exec perl -x "$HOME"/zsh/ppfiletagger_shell_functions.sh --sa 9>&0 <<'END'
+	exec perl -x "$HOME"/prg/ppfiletagger/ppfiletagger_shell_functions.sh --sa 9>&0 <<'END'
 	+ : - --mcmenu --cd=%d show -- %s
 	END
