@@ -105,6 +105,8 @@ class Matcher(object):
         self.DisallowExts(self.IMAGE_EXTS)
       elif term == ':any':  # TODO(pts): Support it.
         raise BadQuery('unsupperted query term: ' + term)
+      elif term.startswith('*-'):
+        raise BadQuery('unsupported *- prefix: ' + term)
       elif self.INVALID_TERM_CHAR_RE.search(term):
         raise BadQuery('query term with forbidden char: ' + term)
       elif ':' in term and not ((term.startswith('v:') and term.rfind(':') == 1) or (term.startswith('-v:') and term.rfind(':') == 2)):
