@@ -54,9 +54,6 @@ class Matcher(object):
                'with_any_exts', 'without_exts', 'with_tags', 'without_tags',
                'do_assume_tags_match']
 
-  INVALID_TERM_CHAR_RE = re.compile('[*?\'"|!&]')
-  """Matches characters invalid in query terms."""
-
   VIDEO_EXTS = set(['avi', 'wmv', 'mpg', 'mpe', 'mpeg', 'mov', 'rm', 'ra',
                     'ram', 'flv', 'mp4', 'ts', 'iso', 'vob', 'fli', 'asf',
                     'asx', 'divx', 'qt', 'flc', 'ogm', 'mkv', 'img', 'vid',
@@ -80,6 +77,12 @@ class Matcher(object):
     self.match_without_tag = False
     self.with_any_exts = None  # Allow anything.
     self.without_exts = set()  # Don't disallow anything.
+    if '(' in query or ')' in query:
+      raise BadQuery('parentheses not supported in <tagquery>: ' + query)
+    if '"' in query or "'" in query:
+      raise BadQuery('quotes not supported in <tagquery>: ' + query)
+    if '|' in query:
+      raise BadQuery('unsupported query operator: |')
     terms = query.split()
     if not terms:
       raise BadQuery('empty query')
@@ -105,8 +108,6 @@ class Matcher(object):
         continue
       elif term.startswith('*-'):
         raise BadQuery('unsupported *- prefix: ' + term)
-      elif self.INVALID_TERM_CHAR_RE.search(term):
-        raise BadQuery('query term with forbidden char: ' + term)
       elif ':' in term and not ((term.startswith('v:') and term.rfind(':') == 1) or (term.startswith('-v:') and term.rfind(':') == 2)):
         raise BadQuery('unknown special query term: ' + term)
       elif term.startswith('--'):
