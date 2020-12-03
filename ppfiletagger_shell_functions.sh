@@ -775,6 +775,9 @@ Usage: $0 <filename>\n" if @ARGV != 1;
 
 # --- tagquery
 
+# These are supported in rmtimequery, but not in here.
+my %unsupported_special_terms = qw(:vid 1 :video 1 :film 1 :movie 1 :pic 1 :picture 1 :img 1 :image 1);
+
 #** <tagquery> language:
 #** * "foo bar | -baz" means ((foo AND bar) OR NOT baz).
 #** * Special words: * -* and *-foo
@@ -820,7 +823,10 @@ sub parse_tagquery($) {
         $needplus{$tagv} = 1;
         next if $tagv eq "*";
       }
-      die1 "$0: fatal: invalid tagv syntax: $tagv\n" if $tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@o;
+      if ($tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@o) {
+        die1 "$0: fatal: unsupported special query term: $tagv\n" if exists $unsupported_special_terms{$tagv};
+        die1 "$0: fatal: invalid tagv syntax: $tagv\n";
+      }
     }
     die1 "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !($had_any or %needplus or %needminus);
     if (exists($needminus{"*"})) {
