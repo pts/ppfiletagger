@@ -74,7 +74,7 @@ class Matcher(object):
   def SetQuery(self, query):
     if not isinstance(query, str):
       raise TypeError
-    self.do_assume_tags_match = True
+    self.do_assume_tags_match = True  # True indicates that the SQLite MATCH operator can determine the result, no need additional checks in self.DoesMatch.
     self.wordlistc = None
     self.match_with_tag = None
     self.match_without_tag = False
@@ -87,8 +87,6 @@ class Matcher(object):
     pntags = []
     self.with_tags = set()
     self.without_tags = set()  # Without the leading '-'
-    has_positive_tag = False
-    has_negative_tag = False
     for term in terms:
       # TODO(pts): Add ':size>100' as a valid query term.
       if term in ('*', ':tag', ':tagged'):
@@ -104,7 +102,7 @@ class Matcher(object):
       elif term in ('-:pic', '-:picture', '-:img', '-:image'):
         self.DisallowExts(self.IMAGE_EXTS)
       elif term == ':any':  # TODO(pts): Support it.
-        raise BadQuery('unsupperted query term: ' + term)
+        continue
       elif term.startswith('*-'):
         raise BadQuery('unsupported *- prefix: ' + term)
       elif self.INVALID_TERM_CHAR_RE.search(term):
@@ -121,21 +119,19 @@ class Matcher(object):
         # Negative tags (starting with '-') are also allowed.
         # TODO(pts): Filter unknown tags.
         if term.startswith('-'):
-          has_negative_tag = True
           self.without_tags.add(term[1:])
         else:
-          has_positive_tag = True
           self.with_tags.add(term)
         pntags.append(term)
 
-    if has_positive_tag:
+    if self.with_tags:
       self.match_with_tag = True
       self.wordlistc = QueryToWordData(' '.join(pntags))
       self.do_assume_tags_match = True
     else:
       self.wordlistc = ''
 
-      if has_negative_tag:
+      if self.without_tags:
         if self.match_with_tag is None:
           # Ask for explicit '*' to avoid accidental slow queries.
           raise BadQuery(
@@ -178,9 +174,9 @@ class Matcher(object):
       raise TypeError
     tags = tags.split()
     if not self.do_assume_tags_match:
-      if not tags and (self.with_tags or not self.match_without_tag):
+      if not tags and self.match_with_tag:
         return False
-      if tags and not self.match_with_tag:
+      if tags and self.match_without_tag:
         return False
       if self.with_tags.difference(tags):
         return False
