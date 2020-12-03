@@ -26,8 +26,8 @@ ppfiletagger needs:
 
 * A Linux system running kernel 2.4 or later.
 * Filesystems with extended attribute support (such as ext2, ext3, ext4, xfs
-  and reiserfs), and user.* extended attributes turned on (mount -o
-  user_xattr).
+  and reiserfs), and user.* extended attributes turned on (e.g.
+  `mount -o remount,user_xattr /').
 * Python 2.4.
 * libattr1 (tried with 2.4.32; on Debian Etch: apt-get install libattr1;
   included, linked against python-2.4.4 and libc-2.3.6).
