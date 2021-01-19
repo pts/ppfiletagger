@@ -70,12 +70,13 @@ class GlobalInfo(base.GlobalInfo):
       self.ReopenDBs(do_close_first=False)
 
     matcher = matcher.Matcher(query)  # May raise matcher.BadQuery.
-    if matcher.IsImpossible():
-      logging.info('impossible query=%r' % query)
+    if matcher.is_impossible:
+      logging.info('impossible query, cannot match any files: %s' % query)
     else:
-      if matcher.match_without_tag:
+      if matcher.must_be_untagged:
         raise matcher.BadQuery(
             'cannot match files without tags (no database of those)')
+      do_assume_match = matcher.do_assume_match
       for scan_root_dir in self.roots:
         root_info = self.roots[scan_root_dir]
         root_slash = root_info.root_dir
@@ -90,7 +91,7 @@ class GlobalInfo(base.GlobalInfo):
             filename = root_slash + entry
           else:
             filename = '%s%s/%s' % (root_slash, dirname[2:], entry)
-          if matcher.DoesMatch(filename, tags):
+          if do_assume_match or matcher.DoesMatch(filename, tags, False):
             row = list(row)
             row[1] = filename
             yield row
