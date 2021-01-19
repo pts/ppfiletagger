@@ -75,7 +75,10 @@ class GlobalInfo(base.GlobalInfo):
     else:
       if matcher.must_be_untagged:
         raise matcher.BadQuery(
-            'cannot match files without tags (no database of those)')
+            'query matches only files without tags (no database of those)')
+      if not matcher.must_be_tagged:
+        raise matcher.BadQuery(
+            'query may match files without tags (no database of those)')
       do_assume_match = matcher.do_assume_match
       for scan_root_dir in self.roots:
         root_info = self.roots[scan_root_dir]
