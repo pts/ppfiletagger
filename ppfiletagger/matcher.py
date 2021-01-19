@@ -54,7 +54,7 @@ class Matcher(object):
                'with_any_exts', 'without_exts', 'with_tags', 'without_tags',
                'do_assume_tags_match']
 
-  VIDEO_EXTS = set(['avi', 'wmv', 'mpg', 'mpe', 'mpeg', 'mov', 'rm', 'ra',
+  VIDEO_EXTS = set(['avi', 'wmv', 'mpg', 'mpe', 'mpeg', 'mov', 'rm',
                     'ram', 'flv', 'mp4', 'ts', 'iso', 'vob', 'fli', 'asf',
                     'asx', 'divx', 'qt', 'flc', 'ogm', 'mkv', 'img', 'vid',
                     'm2ts', 'original', 'rmvb', 'mp2', 'mpa', 'm4v', 'tp',
@@ -64,6 +64,12 @@ class Matcher(object):
   IMAGE_EXTS = set(['png', 'jpeg', 'jpg', 'jpe', 'gif', 'tif', 'tiff', 'pcx',
                     'bmp', 'xcf', 'pnm', 'pbm', 'pgm', 'ppm', 'xwd', 'xpm'])
   """Lowercase filename extension for still images."""
+
+  AUDIO_EXTS = set(['wav', 'au', 'mp3', 'mp2', 'ogg', 'm4a', 'opus', 'flac',
+                    'aac', 'ac3', 'dts', 'ape', 'vorbis', 'speex', 'ra', 'mid',
+                    'midi', 'mov', 's3m', 'it', 'xt', 'sid', 'ralf', 'aiff',
+                    'aifc'])
+  """Lowercase filename extension for audio files."""
 
   def __init__(self, query):
     self.SetQuery(query)
@@ -104,6 +110,10 @@ class Matcher(object):
         self.AllowExts(self.IMAGE_EXTS)
       elif term in ('-:pic', '-:picture', '-:img', '-:image'):
         self.DisallowExts(self.IMAGE_EXTS)
+      elif term in (':aud', ':audio', ':snd', ':sound'):
+        self.AllowExts(self.AUDIO_EXTS)
+      elif term in ('-:aud', '-:audio', '-:snd', '-:sound'):
+        self.DisallowExts(self.AUDIO_EXTS)
       elif term == ':any':
         continue
       elif term.startswith('ext:') or term.startswith('-ext:'):
