@@ -17,6 +17,7 @@ $_ = "\n\n\n\n\n\n\n\n" . <<'END';
 #
 # TODO(pts): Add an option reject invalid tagvs to _cmd_grep etc.
 # TODO(pts): Add descript.ion support as a fallback for e.g. FAT32 and exFAT filesystems.
+# TODO(pts): Add file type detection (e.g. :video) for grep, find and query commands.
 #
 
 # Simple superset of UTF-8 words.
