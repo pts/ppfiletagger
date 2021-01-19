@@ -104,8 +104,21 @@ class Matcher(object):
         self.AllowExts(self.IMAGE_EXTS)
       elif term in ('-:pic', '-:picture', '-:img', '-:image'):
         self.DisallowExts(self.IMAGE_EXTS)
-      elif term == ':any':  # TODO(pts): Support it.
+      elif term == ':any':
         continue
+      elif term.startswith('ext:') or term.startswith('-ext:'):
+        is_neg = term.startswith('-')
+        term = term.split(':', 1)[1]
+        if '-' in term or ':' in term:
+          raise BadQuery('ext: term with unsupported character: ' + term)
+        term2 = term.replace('/', '')
+        if term2 and not TAGVM_RE.match(term2):
+          raise BadQuery('invalid ext: term syntax: ' + term)
+        term = filter(None, term.lower().split('/'))
+        if is_neg:
+          self.DisallowExts(term)
+        else:
+          self.AllowExts(term)
       elif term.startswith('*-'):
         raise BadQuery('unsupported *- prefix: ' + term)
       elif ':' in term and not ((term.startswith('v:') and term.rfind(':') == 1) or (term.startswith('-v:') and term.rfind(':') == 2)):
