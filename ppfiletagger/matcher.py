@@ -50,9 +50,10 @@ def QueryToWordData(query):
 class Matcher(object):
   """Class to match rows against the specified query."""
 
-  __slots__ = ['wordlistc', 'match_with_tag', 'match_without_tag',
+  # Users of Matcher shouldn't change these directly.
+  __slots__ = ('wordlistc', 'must_be_tagged', 'must_be_untagged',
                'with_any_exts', 'without_exts', 'with_tags', 'without_tags',
-               'do_assume_tags_match']
+               'do_assume_match', 'do_assume_tags_match', 'is_impossible')
 
   VIDEO_EXTS = set(['avi', 'wmv', 'mpg', 'mpe', 'mpeg', 'mov', 'rm',
                     'ram', 'flv', 'mp4', 'ts', 'iso', 'vob', 'fli', 'asf',
@@ -77,10 +78,14 @@ class Matcher(object):
   def SetQuery(self, query):
     if not isinstance(query, str):
       raise TypeError
-    self.do_assume_tags_match = True  # True indicates that the SQLite MATCH operator can determine the result, no need additional checks in self.DoesMatch.
+    # Can the SQLite MATCH operator can determine the final result, without the
+    # need for additional checks in self.DoesMatch?
+    self.do_assume_match = None
+    # Can the SQLite MATCH operator can determine the result of the tag match?
+    self.do_assume_tags_match = True
     self.wordlistc = None
-    self.match_with_tag = False
-    self.match_without_tag = False
+    self.must_be_tagged = False
+    self.must_be_untagged = False
     self.with_any_exts = None  # Allow anything.
     self.without_exts = set()  # Don't disallow anything.
     if '(' in query or ')' in query:
@@ -96,24 +101,31 @@ class Matcher(object):
     pntags = []
     self.with_tags = set()
     self.without_tags = set()  # Without the leading '-'
+    def AllowExts(exts):
+      if self.with_any_exts is None:
+        self.with_any_exts = set(exts)
+      else:
+        self.with_any_exts.intersection_update(exts)
+    def DisallowExts(exts):
+      self.without_exts.update(exts)
     for term in terms:
       # TODO(pts): Add ':size>100' as a valid query term.
       if term in ('*', ':tag', ':tagged'):
-        self.match_with_tag = True
+        self.must_be_tagged = True
       elif term in ('-*', '-:tag', ':none'):
-        self.match_without_tag = True
+        self.must_be_untagged = True
       elif term in (':vid', ':video', ':film', ':movie'):
-        self.AllowExts(self.VIDEO_EXTS)
+        AllowExts(self.VIDEO_EXTS)
       elif term in ('-:vid', '-:video', '-:film', '-:movie'):
-        self.DisallowExts(self.VIDEO_EXTS)
+        DisallowExts(self.VIDEO_EXTS)
       elif term in (':pic', ':picture', ':img', ':image'):
-        self.AllowExts(self.IMAGE_EXTS)
+        AllowExts(self.IMAGE_EXTS)
       elif term in ('-:pic', '-:picture', '-:img', '-:image'):
-        self.DisallowExts(self.IMAGE_EXTS)
+        DisallowExts(self.IMAGE_EXTS)
       elif term in (':aud', ':audio', ':snd', ':sound'):
-        self.AllowExts(self.AUDIO_EXTS)
+        AllowExts(self.AUDIO_EXTS)
       elif term in ('-:aud', '-:audio', '-:snd', '-:sound'):
-        self.DisallowExts(self.AUDIO_EXTS)
+        DisallowExts(self.AUDIO_EXTS)
       elif term == ':any':
         continue
       elif term.startswith('ext:') or term.startswith('-ext:'):
@@ -126,9 +138,9 @@ class Matcher(object):
           raise BadQuery('invalid ext: term syntax: ' + term)
         term = filter(None, term.lower().split('/'))
         if is_neg:
-          self.DisallowExts(term)
+          DisallowExts(term)
         else:
-          self.AllowExts(term)
+          AllowExts(term)
       elif term.startswith('*-'):
         raise BadQuery('unsupported *- prefix: ' + term)
       elif ':' in term and not ((term.startswith('v:') and term.rfind(':') == 1) or (term.startswith('-v:') and term.rfind(':') == 2)):
@@ -148,59 +160,55 @@ class Matcher(object):
           self.with_tags.add(term)
         pntags.append(term)
 
-    if self.match_without_tag:
+    if self.must_be_untagged:
       if self.with_tags:
-        self.match_with_tag = True
+        self.must_be_tagged = True
         self.with_tags.clear()
       self.without_tags.clear()  # Optimization.
     if self.with_tags:
-      self.match_with_tag = True
+      self.must_be_tagged = True
+      # TODO(pts): Use NOT instead of `-' if SQLite uses the extended query
+      # syntax.
       self.wordlistc = QueryToWordData(' '.join(pntags))
       self.do_assume_tags_match = True
     else:
       self.wordlistc = ''
-      if self.without_tags or self.match_without_tag:
+      if self.without_tags or self.must_be_untagged:
         # SQLite3 raises
         # sqlite.OperationalError('SQL logic error or missing database') if
         # only negative tags are specified in a fulltext index.
         self.do_assume_tags_match = False
 
-  def AllowExts(self, exts):
-    if self.with_any_exts is None:
-      self.with_any_exts = set(exts)
-    else:
-      self.with_any_exts.intersection_update(exts)
+    # Is it impossible that this Matcher ever matches a file?
+    self.is_impossible = (
+        (self.must_be_tagged and self.must_be_untagged) or
+        self.with_any_exts is not None and (
+            not self.with_any_exts or
+            self.with_any_exts.intersection(self.without_exts)) or
+        self.with_tags.intersection(self.without_tags))
 
-  def DisallowExts(self, exts):
-    self.without_exts.update(exts)
+    self.do_assume_match = self.do_assume_tags_match and (
+        self.with_any_exts is None and not self.without_exts)
 
-  def IsImpossible(self):
-    """Is it impossible that this Matcher ever matches a file?"""
-    if self.match_with_tag and self.match_without_tag:
-      return True
-    if self.with_any_exts is not None:
-      if not self.with_any_exts:
-        return True
-      if self.with_any_exts.intersection(self.without_exts):
-        return True
-    if self.with_tags.intersection(self.without_tags):
-      return True
-    return False
-
-  def DoesMatch(self, filename, tags):
+  def DoesMatch(self, filename, tags, do_full_match):
     """Does this matcher match a file with the specified filename and tags?
 
     Args:
       filename: Absolute filename (starting with /).
       tags: String containing positive tags separated by spaces. Can be empty.
+      do_full_match: bool: if true, match on everything; if false, skip some
+          matches assuming that the SQLite MATCH operator has already matched
+          self.wordlistc.
     """
-    if not isinstance(tags, str):
-      raise TypeError
-    tags = tags.split()
-    if not self.do_assume_tags_match:
-      if not tags and self.match_with_tag:
+    if not do_full_match and self.do_assume_match:
+      return True
+    if do_full_match or not self.do_assume_tags_match:
+      if not isinstance(tags, str):
+        raise TypeError
+      tags = tags.split()
+      if not tags and self.must_be_tagged:
         return False
-      if tags and self.match_without_tag:
+      if tags and self.must_be_untagged:
         return False
       if self.with_tags.difference(tags):
         return False
@@ -230,15 +238,11 @@ if __name__ == '__main__':
     sys.stderr.write('Usage: %s <tagquery> ["<filetags>" <filename> ...]\n' % sys.argv[0])
     sys.exit(1)
   matcher = Matcher(sys.argv[1])
-  keys = sorted(('do_assume_tags_match', 'wordlistc', 'match_with_tag', 'match_without_tag', 'with_any_exts', 'without_exts', 'is_impossible', 'with_tags', 'without_tags'))
+  keys = sorted(matcher.__slots__)
   for key in sorted(keys):
-    if key == 'is_impossible':
-      value = matcher.IsImpossible()
-    else:
-      value = getattr(matcher, key)
+    value = getattr(matcher, key)
     print 'matcher.%s = %r' % (key, value)
-  matcher.do_assume_tags_match = False  # Do a full match.
   i, args = 2, sys.argv
   for i in xrange(2, len(args), 2):
     tags, filename = args[i], args[i + 1]
-    print 'match tags=%r filename=%r does_match=%r' % (tags, filename, matcher.DoesMatch(filename, tags))
+    print 'match tags=%r filename=%r does_match=%r' % (tags, filename, matcher.DoesMatch(filename, tags, True))
