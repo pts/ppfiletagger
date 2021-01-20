@@ -23,6 +23,7 @@ import time
 
 from ppfiletagger import matcher  # Import first.
 from ppfiletagger import base
+from ppfiletagger.good_sqlite import sqlite
 
 
 class RootInfo(base.RootInfo):
@@ -58,6 +59,38 @@ class GlobalInfo(base.GlobalInfo):
 
   root_info_class = RootInfo
 
+  @classmethod
+  def IsFts3Enhanced(cls, db):
+    """Returns bool indicating whether SQLite FTS3 extended query syntax is
+    available."""
+    # Checks for FTS3 enhanced query syntax:
+    # https://www.sqlite.org/fts3.html#_set_operations_using_the_enhanced_query_syntax
+    try:
+      rows = tuple(db.execute(
+          "SELECT 1 FROM filewords WHERE worddata MATCH 'NOT' AND "
+          'rowid=0 and rowid<rowid'))
+    except sqlite.OperationalError, e:
+      if str(e).startswith('malformed MATCH expression:'):
+        return True
+      raise
+    if rows:
+      raise RuntimeError('Unexpected rows returned in enhanced test.')
+    return False
+
+  @classmethod
+  def ConvertToFts3Enhanced(cls, wordlistc):
+    positives, negatives = [], []
+    for word in wordlistc.split():
+      if word.startswith('-'):
+        negatives.append('NOT ' + word[1:])
+      elif word:
+        positives.append(word)
+    if negatives and not positives:
+      # Matcher ensures that this doesn't happen.
+      raise ValueError('No positive words in wordlistc.')
+    positives.extend(negatives)
+    return ' '.join(positives)
+
   def GenerateQueryResponse(self, query, do_stat):
     # TODO: Print warning if tagdb is not up to date.
     # TODO: Accept search_root_dir argument.
@@ -80,12 +113,19 @@ class GlobalInfo(base.GlobalInfo):
         raise matcher.BadQuery(
             'query may match files without tags (no database of those)')
       do_assume_match = matcher_obj.do_assume_match
+      is_fts3_enhanced, wordlistc = None, matcher_obj.wordlistc
+      if '-' not in wordlistc:
+        is_fts3_enhanced = False  # Optimization.
       for scan_root_dir in self.roots:
         root_info = self.roots[scan_root_dir]
+        if is_fts3_enhanced is None:
+          is_fts3_enhanced = self.IsFts3Enhanced(root_info.db)
+          if is_fts3_enhanced and '-' in wordlistc:
+            wordlistc = self.ConvertToFts3Enhanced(wordlistc)
         root_slash = root_info.root_dir
         if not root_slash.endswith('/'): root_slash += '/'
         for row in root_info.GenerateFullTextResponse(
-            wordlistc=matcher_obj.wordlistc,
+            wordlistc=wordlistc,
             xattr=root_info.FILEWORDS_XATTRS[0], do_stat=do_stat):
           dirname = row[0]
           entry = row[1]
