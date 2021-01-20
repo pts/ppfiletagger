@@ -12,13 +12,24 @@ instead of:
 """
 
 sqlite = None
-try:
-  import pysqlite2.dbapi2 as sqlite
-  sqlite.connect(':memory:').execute(
-      'CREATE VIRTUAL TABLE v USING FTS3 (t TEXT)')
-except (ImportError, SystemError,
-        getattr(sqlite, 'OperationalError', None)), e:
-  sqlite = None
+
+if sqlite is None:
+  try:
+    import sqlite3 as sqlite  # Standard in Python 2.5, 2.6 and 2.7.
+    sqlite.connect(':memory:').execute(
+        'CREATE VIRTUAL TABLE v USING FTS3 (t TEXT)')
+  except (ImportError, SystemError,
+          getattr(sqlite, 'OperationalError', None)), e:
+    sqlite = None
+
+if sqlite is None:
+  try:
+    import pysqlite2.dbapi2 as sqlite
+    sqlite.connect(':memory:').execute(
+        'CREATE VIRTUAL TABLE v USING FTS3 (t TEXT)')
+  except (ImportError, SystemError,
+          getattr(sqlite, 'OperationalError', None)), e:
+    sqlite = None
 
 if sqlite is None:
   try:
@@ -32,4 +43,4 @@ if sqlite is None:
 
 if sqlite is None:
   del sqlite
-  raise ImportError('cannot import psqlite2.dbapi2 with the FTS3 module')
+  raise ImportError('cannot import SQLite with the FTS3 module')
