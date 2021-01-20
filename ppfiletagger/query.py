@@ -37,13 +37,13 @@ class RootInfo(base.RootInfo):
     else:
       fields = ''
     if wordlistc:
-      # INDEXED BY applies only to fileattrs. The fulltext index in filewords
-      # would be used (hopefully).
+      # INDEXED BY applies only to fileattrs. The FTS3 fulltext index will be
+      # used in filewords in the subquery.
       query = ('SELECT dir, entry, value%s '
-               'FROM filewords, fileattrs INDEXED BY fileattrs_xattr '
-               'WHERE worddata MATCH (?) AND '
-               'xattr=? AND filewords.rowid=filewords_rowid' % fields,
-               (wordlistc, xattr))
+               'FROM fileattrs INDEXED BY fileattrs_xattr '
+               'WHERE xattr=? AND filewords_rowid IN '
+               '(SELECT rowid FROM filewords WHERE worddata MATCH (?))' %
+               fields, (xattr, wordlistc))
     else:
       query = ('SELECT dir, entry, value%s '
                'FROM fileattrs INDEXED BY fileattrs_xattr '
