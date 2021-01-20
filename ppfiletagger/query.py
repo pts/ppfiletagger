@@ -120,7 +120,7 @@ def main(argv):
       break
     elif arg == '--format=tuple':
       use_format = 'tuple'
-    elif arg in ('-n', '--format=name'):
+    elif arg in ('-n', '--format=name', '--format=filename'):
       use_format = 'name'
     elif arg == '--format=mclist':  # Midnight Commander extfs list
       use_format = 'mclist'
