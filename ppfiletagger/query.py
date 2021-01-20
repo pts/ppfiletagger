@@ -69,24 +69,24 @@ class GlobalInfo(base.GlobalInfo):
       # TODO: do ParseMounts again occasionally
       self.ReopenDBs(do_close_first=False)
 
-    matcher = matcher.Matcher(query)  # May raise matcher.BadQuery.
-    if matcher.is_impossible:
+    matcher_obj = matcher.Matcher(query)  # May raise matcher.BadQuery.
+    if matcher_obj.is_impossible:
       logging.info('impossible query, cannot match any files: %s' % query)
     else:
-      if matcher.must_be_untagged:
+      if matcher_obj.must_be_untagged:
         raise matcher.BadQuery(
             'query matches only files without tags (no database of those)')
-      if not matcher.must_be_tagged:
+      if not matcher_obj.must_be_tagged:
         raise matcher.BadQuery(
             'query may match files without tags (no database of those)')
-      do_assume_match = matcher.do_assume_match
+      do_assume_match = matcher_obj.do_assume_match
       for scan_root_dir in self.roots:
         root_info = self.roots[scan_root_dir]
         root_slash = root_info.root_dir
         if not root_slash.endswith('/'): root_slash += '/'
         for row in root_info.GenerateFullTextResponse(
-            wordlistc=matcher.wordlistc, xattr=root_info.FILEWORDS_XATTRS[0],
-            do_stat=do_stat):
+            wordlistc=matcher_obj.wordlistc,
+            xattr=root_info.FILEWORDS_XATTRS[0], do_stat=do_stat):
           dirname = row[0]
           entry = row[1]
           tags = row[2]
@@ -94,7 +94,7 @@ class GlobalInfo(base.GlobalInfo):
             filename = root_slash + entry
           else:
             filename = '%s%s/%s' % (root_slash, dirname[2:], entry)
-          if do_assume_match or matcher.DoesMatch(filename, tags, False):
+          if do_assume_match or matcher_obj.DoesMatch(filename, tags, False):
             row = list(row)
             row[1] = filename
             yield row
