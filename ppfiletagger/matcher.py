@@ -53,6 +53,7 @@ class Matcher(object):
   # Users of Matcher shouldn't change these directly.
   __slots__ = ('wordlistc', 'must_be_tagged', 'must_be_untagged',
                'with_any_exts', 'without_exts', 'with_tags', 'without_tags',
+               'with_other_tags',
                'do_assume_match', 'do_assume_tags_match', 'is_impossible')
 
   VIDEO_EXTS = set(['avi', 'wmv', 'mpg', 'mpe', 'mpeg', 'mov', 'rm',
@@ -82,7 +83,7 @@ class Matcher(object):
     # need for additional checks in self.DoesMatch?
     self.do_assume_match = None
     # Can the SQLite MATCH operator can determine the result of the tag match?
-    self.do_assume_tags_match = True
+    self.do_assume_tags_match = None
     self.wordlistc = None
     self.must_be_tagged = False
     self.must_be_untagged = False
@@ -100,7 +101,8 @@ class Matcher(object):
     # Positive and negative tags.
     pntags = []
     self.with_tags = set()
-    self.without_tags = set()  # Without the leading '-'
+    self.without_tags = set()  # Without the leading '-'.
+    self.with_other_tags = set()  # Without the leading '*-'.
     def AllowExts(exts):
       if self.with_any_exts is None:
         self.with_any_exts = set(exts)
@@ -142,7 +144,10 @@ class Matcher(object):
         else:
           AllowExts(term)
       elif term.startswith('*-'):
-        raise BadQuery('unsupported *- prefix: ' + term)
+        term = term[2:]
+        if not TAGVM_RE.match(term):
+          raise BadQuery('invalid tagv syntax: ' + term)
+        self.with_other_tags.add(term)
       elif ':' in term and not ((term.startswith('v:') and term.rfind(':') == 1) or (term.startswith('-v:') and term.rfind(':') == 2)):
         raise BadQuery('unknown special query term: ' + term)
       elif term.startswith('--'):
@@ -160,6 +165,8 @@ class Matcher(object):
           self.with_tags.add(term)
         pntags.append(term)
 
+    if self.with_other_tags:
+      self.must_be_tagged = True
     if self.must_be_untagged:
       if self.with_tags:
         self.must_be_tagged = True
@@ -167,28 +174,26 @@ class Matcher(object):
       self.without_tags.clear()  # Optimization.
     if self.with_tags:
       self.must_be_tagged = True
-      # TODO(pts): Use NOT instead of `-' if SQLite uses the extended query
-      # syntax.
       self.wordlistc = QueryToWordData(' '.join(pntags))
-      self.do_assume_tags_match = True
     else:
+      # We don't event try to match negative tags only, it fails with
+      # sqlite.OperationalError('SQL logic error or missing database') for
+      # the standard query syntax, and it fails with another message for the
+      # enhanced query syntax.
       self.wordlistc = ''
-      if self.without_tags or self.must_be_untagged:
-        # SQLite3 raises
-        # sqlite.OperationalError('SQL logic error or missing database') if
-        # only negative tags are specified in a fulltext index.
-        self.do_assume_tags_match = False
 
     # Is it impossible that this Matcher ever matches a file?
-    self.is_impossible = (
+    self.is_impossible = bool(
         (self.must_be_tagged and self.must_be_untagged) or
         self.with_any_exts is not None and (
             not self.with_any_exts or
             self.with_any_exts.intersection(self.without_exts)) or
         self.with_tags.intersection(self.without_tags))
 
-    self.do_assume_match = self.do_assume_tags_match and (
-        self.with_any_exts is None and not self.without_exts)
+    self.do_assume_tags_match = not self.with_other_tags and bool(
+        self.with_tags or not (self.without_tags or self.must_be_untagged))
+    self.do_assume_match = bool(self.do_assume_tags_match and (
+        self.with_any_exts is None and not self.without_exts))
 
   def DoesMatch(self, filename, tags, do_full_match):
     """Does this matcher match a file with the specified filename and tags?
@@ -213,6 +218,9 @@ class Matcher(object):
       if self.with_tags.difference(tags):
         return False
       if self.without_tags.intersection(tags):
+        return False
+      # Checking for non-empty before .issuperset makes it faster.
+      if self.with_other_tags and self.with_other_tags.issuperset(tags):
         return False
     if self.with_any_exts is not None or self.without_exts:
       j = filename.rfind('/')

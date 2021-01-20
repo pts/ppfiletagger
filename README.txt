@@ -292,9 +292,6 @@ Future plans
 ~~~~~~~~~~~~
 The future plans of ppfiletagger, in 2021:
 
-* Make rmtimescan and rmtimequery work on modern Linux systems with Python
-  2.x and modern pyxattr and sqlite3 dependencies.
-
 * Make the query language of rmtimequery and ppfiletagger_shell_functions.sh
   the same, adding the missing features to both. Also document the query
   language.
@@ -312,7 +309,6 @@ TODO
 ~~~~
 # rmtimequery:
 # TODO: support the `|' search operator (disjunction)
-# TODO: support query terms starting with `*-'
 # TODO: make search case sensitive, for compatibility with
 #       ppfiletagger_shell_functions.sh
 # TODO: implement --format=name, --format=tuple, --format=mclist in
