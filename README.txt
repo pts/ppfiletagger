@@ -335,6 +335,7 @@ TODO
 # TODO: Don't let two instances of rmtimescan run at the same time.
 # TODO: Ignore or defer SIGINT (KeyboardInterrupt).
 # TODO: doc: what kind of mtime clock sync is necessary? what can go wrong?
+# TODO: use large transactions to speed up the update
 # rmtimeup.ko:
 # TODO: doc: write about system design, why is rescanning safe?
 # TODO: investigate and get rid of this dmesg on umount /mnt/mini:

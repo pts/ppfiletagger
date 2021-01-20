@@ -229,6 +229,7 @@ class RootInfo(base.RootInfo):
     stack = [StackEntry('.', ino=None)]
     subdirs = []
     fileattrs = []
+    prev_stat_time = time.time() - 3000
     stat_count = 0
     dirscan_count = 0
     dirskip_count = 0
@@ -336,13 +337,18 @@ class RootInfo(base.RootInfo):
             # Ignore the tagdb file.
             continue
 
-          stat_count += 1
-          if stat_count % 1000 == 0:
-            logging.info('scanning in progress filename=%r '
-                'dirscan_count=%d dirskip_count=%d '
-                'update_count=%d insert_count=%d delete_count=%d' %
-                (fn, dirscan_count, dirskip_count,
-                 update_count, insert_count, delete_count))
+          if stat_count <= 0:
+            time_now = time.time()
+            if time_now - prev_stat_time > 3:
+              prev_stat_time = time_now
+              logging.info('scanning in progress filename=%r '
+                  'dirscan_count=%d dirskip_count=%d '
+                  'update_count=%d insert_count=%d delete_count=%d' %
+                  (fn, dirscan_count, dirskip_count,
+                   update_count, insert_count, delete_count))
+            stat_count = 1000 - 1
+          else:
+            stat_count -= 1
           try:
             # Don't follow symbolic links.
             st = os.lstat(fsfn)
