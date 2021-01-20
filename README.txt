@@ -259,8 +259,7 @@ Future plans
 The future plans of ppfiletagger, in 2021:
 
 * Make rmtimescan and rmtimequery work on modern Linux systems with Python
-  2.x and modern pyxattr and sqlite3 dependencies, including the enhanced
-  query syntax (`NOT' vs `-') in FTS3.
+  2.x and modern pyxattr and sqlite3 dependencies.
 
 * Make the query language of rmtimequery and ppfiletagger_shell_functions.sh
   the same, adding the missing features to both. Also document the query
@@ -279,15 +278,14 @@ TODO
 ~~~~
 # rmtimequery:
 # TODO: make it work on modern Python 2.x, with xattr and sqlite3
-# TODO: support SQLite extended query syntax (NOT)
 # TODO: support the `|' search operator (disjunction)
 # TODO: support query terms starting with `*-'
 # TODO: make search case sensitive, for compatibility with
 #       ppfiletagger_shell_functions.sh
 # TODO: implement --format=name, --format=tuple, --format=mclist in
 #       ppfiletagger_shell_functions.sh
-# TODO: implement --format=sh, --format=xattr, --format=colon,
-#       --format=getfattr, --format=mfi, --format=filename, --format=tags.
+# TODO: implement --format=sh, --format=xattr,
+#       --format=getfattr, --format=mfi, --format=tags.
 # TODO: implement restrictions by directory subtree prefix
 # TODO: add Midnight Commander integration for search
 # rmtimescan:
