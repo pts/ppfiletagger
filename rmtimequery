@@ -1,13 +1,28 @@
-#! /usr/bin/python2.4
-#
-# rmtimequery: command line utility for ppfiletagger.query
+#! /bin/sh
 # by pts@fazekas.hu at Sat Mar 20 13:03:26 CET 2010
-#
+
+""":" # rmtimequery: command line utility for ppfiletagger.query
+
+type python2.7 >/dev/null 2>&1 && exec python2.7 -- "$0" ${1+"$@"}
+type python2.6 >/dev/null 2>&1 && exec python2.6 -- "$0" ${1+"$@"}
+type python2.5 >/dev/null 2>&1 && exec python2.5 -- "$0" ${1+"$@"}
+type python2.4 >/dev/null 2>&1 && exec python2.4 -- "$0" ${1+"$@"}
+exec python -- ${1+"$@"}; exit 1
+
+This script needs Python 2.4, 2.5, 2.6 or 2.7. Python 3.x won't work.
+
+Typical usage: rmtimescan mytag
+"""
 
 if __name__ == '__main__':
+  import sys
+  if not ((2, 4) <= sys.version_info[:2] < (3, 0)):
+    sys.stderr.write(
+        'fatal: Python version 2.4, 2.5, 2.6 or 2.7 needed for: %s\n' %
+        __file__)
+    sys.exit(1)
   import logging
   import ppfiletagger.query
-  import sys
   logging.BASIC_FORMAT = '[%(created)f] %(levelname)s %(message)s'
   logging.root.setLevel(logging.INFO)  # Prints INFO, but not DEBUG.
   sys.exit(ppfiletagger.query.main(sys.argv) or 0)
