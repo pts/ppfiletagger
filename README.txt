@@ -33,13 +33,48 @@ Fast search (building the full index (rmtimescan) and doing fast searches
 * A Linux system running kernel 2.4 or later (known to work with 2.4.32 --
   5.9.12.). It may also work on macOS: Mac OS X 10.5 or later, but it is
   not tested.
-* Python 2.4, 2.5, 2.6 or 2.7. Tested with Python 2.4. Python 3.x won't work.
-* libattr1 (tried with 2.4.32; on Debian Etch: apt-get install libattr1;
-  included, linked against python-2.4.4 and libc-2.3.6).
-* pysqlite2 (included in ppfiletagger/good/pysqlite2/_sqlite.so, contains
-  a stripped-down SQLite 3.6.7, linked against python-2.4.4 and libc-2.3.6).
-* pyxattr (included in ./ppfiletagger/good/xattr.so, linked against
-  python-2.4.4 and static libattr1-2.4.32).
+* Python 2.4, 2.5, 2.6 or 2.7. Python 3.x won't work.
+  * Most modern default installations of Python on Linux work. That's
+    because it's Python 2.5, 2.6 or 2.7, it contains the ctypes module
+    (for reading extended attributes), and it contains the sqlite3 module
+    (for writing and querying SQLite database files).
+  * For reading extended attributes, any of these:
+    * ctypes on Linux. Python 2.5, 2.6 and 2.7 have the ctypes module by
+      default, it can also be installed for Python 2.4.
+    * dl (`import dl') on Linux i386. Python 2.4, 2.5, 2.6 and 2.7 have
+      the dl module by default on Linux i386.
+    * xattr (https://pypi.org/project/xattr/ , sudo apt-get install
+      python-xattr) >= 0.2.2. Tested with 0.6.4, 0.9.1.
+      This should be the preferred solution for Python 2.4 if ctypes and
+      dl above don't work. It also works with Python 2.5, 2.6 and 2.7.
+      When installing with pip on Linux, libattr1-dev may be needed first
+      (sudo apt-get install libattr1-dev). libattr1 version 2.4.32 on
+      Debian Etch is known to work, later versions will also work.
+      xattr is preferred to pyxattr, because the former has fewer Debian
+      package dependencies.
+    * pyxattr (https://pypi.org/project/pyxattr/ , sudo apt-get install
+      python-pyxattr) >= 0.2.2. Tested with 0.2.2, 0.4.0, 0.5.1, 0.6.4,
+      0.9.1. This should be the preferred solution for Python 2.4 if ctypes,
+      dl and xattr above don't work. It also works with Python 2.5, 2.6 and
+      2.7. When installing with pip on Linux, libattr1-dev may be needed
+      first (sudo apt-get install libattr1-dev). libattr1 version 2.4.32 on
+      Debian Etch is known to work, later versions will also work.
+    * pyxattr 0.4.0 for Linux i386, linked against python 2.4.4, glibc 2.3.6
+      and static libattr1 2.4.32, is bundled as ppfiletagger/good/xattr.so .
+  * For writing and querying SQLite database files, any of these:
+    * sqlite3. Python 2.5, 2.6 and 2.7 have the sqlite3 module by default.
+    * pysqlite (https://pypi.org/project/pysqlite/ , sudo apt-get install
+      python-pysqlite2).  Tested with 2.5.1.
+      This should be the strongly preferred solution for Python 2.4,
+      but it also works with Python 2.5, 2.6 and 2.7.
+      When installing with pip on Linux, libsqlite3-dev may be needed first
+      (sudo apt-get install libseqlite3-dev), libsqlite3 version 3.6.7 and
+      above should work.
+      Please note that https://pypi.org/project/pysqlite3/ is a different
+      project, with a different API, don't install that.
+    * pysqlite 2.5.1 for Linux i386, linked against python 2.4.4, glibc 2.3.6
+      and static stripped-down libsqlite3 version 3.6.7 is bundled as
+      ppfiletagger/good/pysqlite2/_sqlite.so .
 * The same filesystem requirements as of the basic functionality.
 
 Incremental online index update needs:
@@ -52,8 +87,7 @@ Incremental online index update needs:
 * The Linux kernel module rmtimeup.ko provided in the rmtimeup directory of
   ppfiletagger has to be compiled and loaded.
 * The same filesystem requirements as of the basic functionality.
-* The same Python dependencies (including pysqlite2 and pyxattr) as for
-  fast search.
+* The same Python dependencies as for fast search.
 
 Optional, for debugging only:
 
@@ -277,7 +311,6 @@ The old (2009), obsolete, future plans of ppfiletagger:
 TODO
 ~~~~
 # rmtimequery:
-# TODO: make it work on modern Python 2.x, with xattr and sqlite3
 # TODO: support the `|' search operator (disjunction)
 # TODO: support query terms starting with `*-'
 # TODO: make search case sensitive, for compatibility with
@@ -287,6 +320,7 @@ TODO
 # TODO: implement --format=sh, --format=xattr,
 #       --format=getfattr, --format=mfi, --format=tags.
 # TODO: implement restrictions by directory subtree prefix
+# TODO: ppfiletagger_shell_functions.sh shouldn't follow symlinks to directories
 # TODO: add Midnight Commander integration for search
 # rmtimescan:
 # TODO: doc: write about what happens if we remount elsewhere

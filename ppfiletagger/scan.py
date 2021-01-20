@@ -185,7 +185,7 @@ class RootInfo(base.RootInfo):
         insert_count += 1
     return update_count, insert_count, delete_count
 
-  def ScanRootDir(self, now, do_incremental):
+  def ScanRootDir(self, now, do_incremental, get_xattr_items_func):
     """Scan filesystem root directory root_dir to db at now.
 
     Returns:
@@ -353,7 +353,7 @@ class RootInfo(base.RootInfo):
 
           if st and stat.S_ISREG(st.st_mode):
             try:
-              xattrs = good_xattr.get_all(fsfn, namespace=good_xattr.NS_USER)
+              xattrs = get_xattr_items_func(fsfn)
             except EnvironmentError, e:
               logging.info('cannot list xattrs of %s: %s' % (fsfn, e))
               xattrs = []
@@ -482,6 +482,21 @@ class Scanner(base.GlobalInfo):
     # Do we need a new scan because of timestamp rounding differences?
     self.need_new_scan = True
     self.had_last_incremental = False
+    xattr_impl = good_xattr.xattr_detect()()
+    self.getxattr_func, self.listxattr_func = (
+        xattr_impl['getxattr'], xattr_impl['listxattr'])
+    #assert 0, (self.GetUserXattrItems('fool'), self.getxattr_func('fool', 'user.other'))
+
+  def GetUserXattrItems(self, filename, do_not_follow_symlinks=False):
+    getxattr_func = self.getxattr_func
+    namespace = 'user.'
+    result, ln = [], len(namespace)
+    for key in self.listxattr_func(filename, do_not_follow_symlinks):
+      if key.startswith(namespace):
+        value = getxattr_func(filename, key, do_not_follow_symlinks)
+        if value is not None:
+          result.append((key[ln:], value))
+    return result
 
   def DoingIncremental(self):
     assert self.event_fd >= 0, ('event file %r not found, '
@@ -502,6 +517,7 @@ class Scanner(base.GlobalInfo):
       time.sleep(0.001)
     self.need_new_scan = False
     had_last_incremental = True
+    get_xattr_items_func = self.GetUserXattrItems
     for scan_root_dir in scan_root_dirs:
       if scan_root_dir == '.empty':
         continue
@@ -509,7 +525,7 @@ class Scanner(base.GlobalInfo):
       got_now = tuple(root.db.execute("SELECT ?", (now,)))
       assert ((now,),) == got_now, ('timestamp mismatch: sent=%r, got=%r' %
           (now, got_now))
-      if root.ScanRootDir(now=now, do_incremental=do_incremental):
+      if root.ScanRootDir(now=now, do_incremental=do_incremental, get_xattr_items_func=get_xattr_items_func):
         self.need_new_scan = True
       if not root.had_last_incremental:
         had_last_incremental = False
