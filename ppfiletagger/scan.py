@@ -351,6 +351,15 @@ class RootInfo(base.RootInfo):
             logging.info('cannot stat: %s' % e)
             st = None
 
+          if st and stat.S_ISLNK(st.st_mode):
+            try:
+              st2 = os.stat(fsfn)
+            except OSError, e:
+              st2 = None
+            if st2 and stat.S_ISREG(st2.st_mode):
+              st = st2  # Follow symlink to file only (not to directory etc.).
+              # There is some race codition (between the stat and the
+              # get_xattr_items_func), but we ignore it for simplicity.
           if st and stat.S_ISREG(st.st_mode):
             try:
               xattrs = get_xattr_items_func(fsfn)
