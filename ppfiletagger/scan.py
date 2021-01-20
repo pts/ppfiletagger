@@ -29,7 +29,7 @@ import os
 import select
 import stat
 import time
-from ppfiletagger.good_xattr import xattr
+from ppfiletagger import good_xattr
 from ppfiletagger import base
 
 
@@ -353,10 +353,10 @@ class RootInfo(base.RootInfo):
 
           if st and stat.S_ISREG(st.st_mode):
             try:
-              xattrs = xattr.get_all(fsfn, namespace=xattr.NS_USER)
+              xattrs = good_xattr.get_all(fsfn, namespace=good_xattr.NS_USER)
             except EnvironmentError, e:
               logging.info('cannot list xattrs of %s: %s' % (fsfn, e))
-              xattrs = ()
+              xattrs = []
             if st.st_nlink > 1 and not xattrs:
               # Add files with multiple hard links but without xattrs to the
               # database in case an xattr gets added to one of them later.
