@@ -195,7 +195,9 @@ class Matcher(object):
     self.do_assume_match = bool(self.do_assume_tags_match and (
         self.with_any_exts is None and not self.without_exts))
 
-  def DoesMatch(self, filename, tags, do_full_match):
+  def DoesMatch(
+      self, filename, tags, do_full_match,
+      _have_isdisjoint=getattr(set(), 'isdisjoint', None) is not None):
     """Does this matcher match a file with the specified filename and tags?
 
     Args:
@@ -211,16 +213,22 @@ class Matcher(object):
       if not isinstance(tags, str):
         raise TypeError
       tags = tags.split()
-      if not tags and self.must_be_tagged:
-        return False
-      if tags and self.must_be_untagged:
-        return False
-      if self.with_tags.difference(tags):
-        return False
-      if self.without_tags.intersection(tags):
-        return False
-      # Checking for non-empty before .issuperset makes it faster.
-      if self.with_other_tags and self.with_other_tags.issuperset(tags):
+      if tags:
+        if self.must_be_untagged:
+          return False
+        #tags = set(tags)  # The conversion usually makes thje 3 checks below slower.
+        # Checking for non-empty before .issuperset etc. makes it faster.
+        if self.with_tags and not self.with_tags.issubset(tags):
+          return False
+        if self.without_tags and (
+            (_have_isdisjoint and not self.without_tags.isdisjoint(tags)) or
+            self.without_tags.intersection(tags)):
+          return False
+        if self.with_other_tags and self.with_other_tags.issuperset(tags):
+          return False
+      elif self.must_be_tagged:
+        # No need to check self.with_tags or self.with_other_tags, because if
+        # they are nonempty, then self.must_be_tagged is also True.
         return False
     if self.with_any_exts is not None or self.without_exts:
       j = filename.rfind('/')
