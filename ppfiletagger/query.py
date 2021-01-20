@@ -120,6 +120,8 @@ def main(argv):
       break
     elif arg == '--format=tuple':
       use_format = 'tuple'
+    elif arg == '--format=colon':
+      use_format = 'colon'
     elif arg in ('-n', '--format=name', '--format=filename'):
       use_format = 'name'
     elif arg == '--format=mclist':  # Midnight Commander extfs list
@@ -143,13 +145,16 @@ def main(argv):
     logging.root.setLevel(logging.WARN)  # Prints WARN and ERROR, but not INFO.
 
   count = 0
+  of = sys.stdout
   for row in GlobalInfo().GenerateQueryResponse(
       query=query, do_stat=(use_format == 'mclist')):
     filename = row[1]
     if use_format == 'name':
-      print filename
+      of.write(filename + '\n')
     elif use_format == 'tuple':
-      print repr((filename, row[2]))
+      of.write(repr((filename, row[2])) + '\n')
+    elif use_format == 'colon':
+      of.write(''.join((row[2], ' :: ', filename, '\n')))
     elif use_format == 'mclist':
       mtime = row[3]
       size = row[4]
@@ -159,11 +164,10 @@ def main(argv):
       year, mon, day, hour, min, sec = time.localtime(mtime)[:6]
       at = '%02d/%02d/%d %02d:%02d:%02d' % (mon, day, year, hour, min, sec)
       # mc SUXX: it's not possible to point out to the real filesystem.
-      sys.stdout.write('lrwxrwxrwx %s root root %s %s %s -> %s\n' %
-                       (nlink, size, at, basename, filename))
+      of.write('lrwxrwxrwx %s root root %s %s %s -> %s\n' %
+               (nlink, size, at, basename, filename))
     count += 1
   if count:
     logging.info('found result count=%d query=%r' % (count, query))
   else:
     logging.info('no results found query=%r' % (query,))
-  return
