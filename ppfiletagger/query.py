@@ -207,6 +207,7 @@ def main(argv):
       of.write('lrwxrwxrwx %s root root %s %s %s -> %s\n' %
                (nlink, size, at, basename, filename))
     count += 1
+  of.flush()  # Flush before writing the log message below.
   if count:
     logging.info('found result count=%d query=%r' % (count, query))
   else:
