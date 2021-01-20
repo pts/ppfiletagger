@@ -17,7 +17,10 @@ GNU General Public License for more details.
 __author__ = 'pts@fazekas.hu (Peter Szabo)'
 
 import logging
+import os
+import os.path
 import re
+import stat
 import sys
 import time
 
@@ -29,27 +32,40 @@ from ppfiletagger.good_sqlite import sqlite
 class RootInfo(base.RootInfo):
   """Information about a filesystem root directory."""
 
-  __slots__ = ['db', 'root_dir', 'last_scan_at', 'tagdb_name']
+  __slots__ = ()  # Also uses the slots of the superclass.
 
-  def GenerateFullTextResponse(self, wordlistc, xattr, do_stat):
+  def GenerateFullTextResponse(self, wordlistc, xattr, do_stat, dirprefix, dirupper, expentry):
     """Generate (dir, entry, value) matches, in no particular order."""
     if do_stat:
       fields = ', mtime, size, nlink'
     else:
       fields = ''
+    # INDEXED BY applies only to fileattrs. The FTS3 fulltext index will be
+    # used in filewords in the subquery.
+    indexed_by, extra_and = 'fileattrs_xattr', ''
     if wordlistc:
-      # INDEXED BY applies only to fileattrs. The FTS3 fulltext index will be
-      # used in filewords in the subquery.
       query = ('SELECT dir, entry, value%s '
-               'FROM fileattrs INDEXED BY fileattrs_xattr '
+               'FROM fileattrs INDEXED BY %s '
                'WHERE xattr=? AND filewords_rowid IN '
-               '(SELECT rowid FROM filewords WHERE worddata MATCH (?))' %
-               fields, (xattr, wordlistc))
+               '(SELECT rowid FROM filewords WHERE worddata MATCH (?))%s')
+      values = [xattr, wordlistc]
     else:
       query = ('SELECT dir, entry, value%s '
-               'FROM fileattrs INDEXED BY fileattrs_xattr '
-               'WHERE xattr=?' % fields, (xattr,))
-    # TODO: Verify proper use of indexes. 
+               'FROM fileattrs INDEXED BY %s '
+               'WHERE xattr=?%s')
+      values = [xattr]
+    if dirprefix:
+      if expentry:
+        # TODO(pts): Don't even consult filewords, do the matching in Python.
+        indexed_by, extra_and = 'fileattrs_nxattr', ' AND dir=? AND entry=?'
+        values.extend((dirprefix, expentry))
+      else:
+        # TODO(pts): Maybe it's faster to ignore wordlistc (and thus
+        # filewords), and do all the matching in Python. Add a command-line
+        # flag.
+        extra_and = ' AND dir>=? AND dir<?'
+        values.extend((dirprefix, dirupper))
+    query = (query % (fields, indexed_by, extra_and), values)
     for row in self.db.execute(*query):
       yield row
 
@@ -91,14 +107,106 @@ class GlobalInfo(base.GlobalInfo):
     positives.extend(negatives)
     return ' '.join(positives)
 
-  def GenerateQueryResponse(self, query, do_stat):
+  @classmethod
+  def GetDbDir(cls, base_filename):
+    """Find database filename by going up from base_filename."""
+    try:
+      st = os.lstat(base_filename)
+    except OSError:
+      raise RuntimeError('Search base does not exist: ' + base_filename)
+    if stat.S_ISLNK(st.st_mode):
+      try:
+        st2 = os.stat(base_filename)
+      except OSError, e:
+        st2 = None
+      if st2 and stat.S_ISREG(st2.st_mode):
+        st = st2
+    if stat.S_ISREG(st.st_mode):
+      if base_filename.endswith('/'):
+        # Shouldn't happen.
+        raise ValueError('Base filename ends with slash: ' + base_filename)
+      i = base_filename.rfind('/')
+      if i < 0:
+        db_dirname, dirprefix, entry = './', [], base_filename
+      else:
+        db_dirname, dirprefix, entry = base_filename[:i].rstrip('/') + '/', [], base_filename[i + 1:]
+    elif stat.S_ISDIR(st.st_mode):
+      db_dirname, dirprefix, entry = base_filename.rstrip('/') + '/', [], ''
+    else:  # Symlinks are also disallowed.
+      raise RuntimeError('Unknown file type in search base: ' + base_filename)
+    while True:
+      assert db_dirname.endswith('/')
+      try:
+        os.lstat(db_dirname + cls.TAGDB_NAME)
+        break
+      except OSError:
+        pass
+      if db_dirname in ('../', './') or db_dirname.endswith('/../') or db_dirname.endswith('/./'):
+        db_dirname = os.path.abspath(db_dirname) + '/'  # Can fail.
+        if not db_dirname.startswith('/') or db_dirname.endswith('/../') or db_dirname.endswith('/./'):
+          raise ValueError('Bad absolute directory name: ' + db_dirname)
+      st = os.lstat(db_dirname)
+      if not stat.S_ISDIR(st.st_mode):
+        raise RuntimeError('Search base must be a directory: ' + db_dirname)
+      i = db_dirname[:-1].rfind('/')
+      if i < 0:
+        db_dirname = os.path.abspath('.') + '/'  # Can fail.
+        if not db_dirname.startswith('/') or db_dirname.endswith('/../') or db_dirname.endswith('/./'):
+          raise ValueError('Bad absolute directory name: ' + db_dirname)
+        i = db_dirname[:-1].rfind('/')
+      if i <= 0:  # Root directory reached.
+        raise ValueError('Tag database not found: ' + cls.TAGDB_NAME)
+      dirprefix.append(db_dirname[i + 1 : -1])
+      db_dirname = db_dirname[:i].rstrip('/') + '/'
+    dirprefix.append('.')
+    dirprefix.reverse()
+    dirprefix = '/'.join(dirprefix)
+    return db_dirname.rstrip('/') or '/', dirprefix, entry
+
+  @classmethod
+  def GetUpperLimitForPrefix(cls, prefix):
+    """Returns a suitable (but not accurate) upper limit corresponding to a
+    string prefix, i.e. prefix <= string < upper will be true."""
+    if not isinstance(prefix, str):
+      raise ValueError
+    upper = prefix
+    while True:
+      if not upper:
+        # This won't happen for dirprefix, because it starts with '.'
+        raise ValueError('No upper limit for prefix: %r' % prefix)
+      if not upper.endswith('\xff'):
+        return upper[:-1] + chr(ord(upper[-1]) + 1)
+      upper = upper[:-1]
+
+  def GenerateQueryResponse(self, query, do_stat, base_filenames):
     # TODO: Print warning if tagdb is not up to date.
     # TODO: Accept search_root_dir argument.
     if not isinstance(query, str): raise TypeError
     wordlistc = None
     if not self.roots:
-      self.OpenTagDBs(self.ParseMounts())
+      if base_filenames:
+        subdir_restricts = {}
+        for base_filename in base_filenames:
+          db_dirname, dirprefix, expentry = self.GetDbDir(base_filename)
+          dirupper = ''
+          if not expentry:
+            dirupper = self.GetUpperLimitForPrefix(dirprefix)
+          if db_dirname not in subdir_restricts:
+            subdir_restricts[db_dirname] = []
+          subdir_restricts[db_dirname].append((dirprefix, dirupper, expentry))
+        mounts = sorted(subdir_restricts)
+        del db_dirname, dirprefix, dirupper, expentry
+      else:
+        mounts = self.ParseMounts()
+        subdir_restricts = None
+      self.OpenTagDBs(mounts)
+      if subdir_restricts is not None:
+        assert sorted(subdir_restricts) == sorted(self.roots), (
+            sorted(subdir_restricts), sorted(self.roots))
+      del mounts
     else:
+      if base_filenames:
+        raise ValueError('Multiple initialization with base_filename.')
       # TODO: do ParseMounts again occasionally
       self.ReopenDBs(do_close_first=False)
 
@@ -124,26 +232,57 @@ class GlobalInfo(base.GlobalInfo):
             wordlistc = self.ConvertToFts3Enhanced(wordlistc)
         root_slash = root_info.root_dir
         if not root_slash.endswith('/'): root_slash += '/'
-        for row in root_info.GenerateFullTextResponse(
-            wordlistc=wordlistc,
-            xattr=root_info.FILEWORDS_XATTRS[0], do_stat=do_stat):
-          dirname = row[0]
-          entry = row[1]
-          tags = row[2]
-          if dirname == '.':
-            filename = root_slash + entry
-          else:
-            filename = '%s%s/%s' % (root_slash, dirname[2:], entry)
-          if do_assume_match or matcher_obj.DoesMatch(filename, tags, False):
-            row = list(row)
-            row[1] = filename
-            yield row
+        if subdir_restricts is not None:
+          restrict_tuples = subdir_restricts[root_info.root_dir]
+          good_pairs = {}
+          for dirprefix, dirupper, expentry in restrict_tuples:
+            if expentry:
+              pair = (dirprefix, expentry)
+              good_pairs[pair] = good_pairs.get(pair, 0) + 1
+            else:
+              good_pairs = None
+              break
+          if good_pairs is not None:
+            restrict_tuples = (('', '', ''),)
+        else:
+          restrict_tuples, good_pairs = (('', '', ''),), None
+        for dirprefix, dirupper, expentry in restrict_tuples:
+          lp = len(dirprefix)
+          lp1 = lp + 1
+          for row in root_info.GenerateFullTextResponse(
+              wordlistc=wordlistc,
+              xattr=root_info.FILEWORDS_XATTRS[0], do_stat=do_stat,
+              dirprefix=dirprefix, dirupper=dirupper, expentry=expentry):
+            dirname = row[0]
+            entry = row[1]
+            tags = row[2]
+            if good_pairs is None:
+              if expentry and not (dirname == dirprefix and entry == expentry):
+                continue
+              if dirupper and not (dirname.startswith(dirprefix) and dirname[lp : lp1] in ('', '/')):
+                continue
+              count = 1
+            else:
+              count = good_pairs.get((dirname, entry), 0)
+              if not count:
+                continue
+            if dirname == '.':
+              filename = root_slash + entry
+            else:
+              filename = ''.join((root_slash, dirname[2:], '/', entry))
+            if do_assume_match or matcher_obj.DoesMatch(filename, tags, False):
+              row = list(row)
+              row[1] = filename
+              for _ in xrange(count):
+                yield row
 
 
 def Usage(argv0):
-  return ("Usage: %s [<flag>...] [-]<tag1> [...]  # query `and'\n\n" % argv0 +
+  return ("Usage: %s [<flag> ...] ['<tagquery>'] [<filename> ...]\n" % argv0 +
+          'Without a <filename>, all filesystems are searched.\n'
           'Flags:\n'
           '--format=tuple\n'
+          '--format=colon\n'
           '--format=name | -n\n'
           '--format=mclist\n'
           '--help\n'
@@ -173,21 +312,23 @@ def main(argv):
       break
     else:
       print >>sys.stderr, Usage(argv[0])
-      print >>sys.stderr, 'error: unknown flag: %s' % arg
+      print >>sys.stderr, 'fatal: unknown flag: %s' % arg
       return 1
     i += 1
-  if i == len(argv):
+  if i >= len(argv):
     print >>sys.stderr, Usage(argv[0])
-    print >>sys.stderr, 'error: missing query'
+    print >>sys.stderr, 'fatal: missing query'
     return 1
-  query = ' '.join(argv[i:])
+  query = argv[i]
+  i += 1
+  base_filenames = argv[i:]
   if use_format == 'mclist':
     logging.root.setLevel(logging.WARN)  # Prints WARN and ERROR, but not INFO.
 
   count = 0
   of = sys.stdout
   for row in GlobalInfo().GenerateQueryResponse(
-      query=query, do_stat=(use_format == 'mclist')):
+      query=query, do_stat=(use_format == 'mclist'), base_filenames=base_filenames):
     filename = row[1]
     if use_format == 'name':
       of.write(filename + '\n')

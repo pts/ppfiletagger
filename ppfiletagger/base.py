@@ -42,8 +42,8 @@ def EntryOf(filename):
 class RootInfo(object):
   """Information about a filesystem root directory."""
 
-  __slots__ = ['db', 'root_dir', 'last_scan_at', 'tagdb_name',
-               'had_last_incremental']
+  __slots__ = ('db', 'root_dir', 'last_scan_at', 'tagdb_name',
+               'had_last_incremental')
 
   FILEWORDS_XATTRS = ('mmfs.tags',)
   """Sequence of user.* extended attribute names to be added to the full-text
@@ -56,6 +56,7 @@ class RootInfo(object):
     self.last_scan_at = last_scan_at
     self.tagdb_name = tagdb_name
     self.had_last_incremental = False
+    #import sys; print >>sys.stderr, self, self.__slots__  # !!
 
   WORDDATA_NONWORDCHAR_RE = re.compile(r'[^a-z0-9:_ ]')
   WORDDATA_SPLIT_WORD_RE = re.compile(r'[^\s?!.,;\[\](){}<>"\']+')
@@ -262,6 +263,8 @@ class GlobalInfo(object):
     self.roots.clear()
     for scan_root_dir in sorted(scan_root_dirs):
       if scan_root_dir == '.empty':
+        continue
+      if scan_root_dir in self.roots:
         continue
       self.roots[scan_root_dir] = self.root_info_class(
           db=None, root_dir=scan_root_dir, last_scan_at=None,
