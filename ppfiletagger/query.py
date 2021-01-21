@@ -287,7 +287,7 @@ def Usage(argv0):
           '--untagged : Same as --tagquery=:none , prints files without tags.\n'
           '--format=tuple\n'
           '--format=colon\n'
-          '--format=name | -n\n'
+          '--format=name | --firmat=filename | -n (default) : Print filename only.\n'
           '--format=mclist\n'
           '--help : Print this help.\n'
           'It reports an error when searching for files without tags.\n'
@@ -296,7 +296,7 @@ def Usage(argv0):
 
 
 def main(argv):
-  use_format = 'tuple'
+  use_format = 'filename'
   query = None
   i = 1
   while i < len(argv):
@@ -317,7 +317,7 @@ def main(argv):
     elif arg == '--format=colon':
       use_format = 'colon'
     elif arg in ('-n', '--format=name', '--format=filename'):
-      use_format = 'name'
+      use_format = 'filename'
     elif arg == '--format=mclist':  # Midnight Commander extfs list
       use_format = 'mclist'
     elif arg == '--help':
@@ -346,7 +346,7 @@ def main(argv):
   for row in GlobalInfo().GenerateQueryResponse(
       query=query, do_stat=(use_format == 'mclist'), base_filenames=base_filenames):
     filename = row[1]
-    if use_format == 'name':
+    if use_format == 'filename':
       of.write(filename + '\n')
     elif use_format == 'tuple':
       of.write(repr((filename, row[2])) + '\n')
