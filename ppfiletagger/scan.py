@@ -116,7 +116,7 @@ class RootInfo(base.RootInfo):
             (sorted(adict), keys))
 
       if adict['xattr'] in self.FILEWORDS_XATTRS:
-        worddata = self.ValueToWordData(adict['value'])
+        worddata = base.ValueToWordData(adict['value'])
         adict = dict(adict)  # Shallow copy. Imp: speed up.
       else:
         worddata = None
