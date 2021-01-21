@@ -295,6 +295,7 @@ def Usage(argv0):
           '--format=tuple\n'
           '--format=colon\n'
           '--format=name | --firmat=filename | -n (default) : Print filename only.\n'
+          '--format=tags : Print tags (including v:...) encountered (deduplicated).\n'
           '--format=mclist\n'
           '--recursive=yes (default) : Dump directories, recursively.\n'
           '--recursive=no : Dump files only.\n'
@@ -328,6 +329,8 @@ def main(argv):
       use_format = 'colon'
     elif arg in ('-n', '--format=name', '--format=filename'):
       use_format = 'filename'
+    elif arg in ('--format=tags', '--format=tagvs'):
+      use_format = 'tags'
     elif arg == '--format=mclist':  # Midnight Commander extfs list
       use_format = 'mclist'
     elif arg in ('--sh', '--colon', '--mfi', '--mscan'):
@@ -362,16 +365,17 @@ def main(argv):
 
   count = 0
   of = sys.stdout
+  tagvs_encountered = set()
   for row in GlobalInfo().GenerateQueryResponse(
       query=query, do_stat=(use_format == 'mclist'),
       base_filenames=base_filenames, is_recursive=is_recursive):
-    filename = row[1]
+    filename, tags = row[1], row[2]
     if use_format == 'filename':
       of.write(filename + '\n')
     elif use_format == 'tuple':
-      of.write(repr((filename, row[2])) + '\n')
+      of.write(repr((filename, tags)) + '\n')
     elif use_format == 'colon':
-      of.write(''.join((row[2], ' :: ', filename, '\n')))
+      of.write(''.join((tags, ' :: ', filename, '\n')))
     elif use_format == 'mclist':
       mtime = row[3]
       size = row[4]
@@ -383,6 +387,13 @@ def main(argv):
       # mc SUXX: it's not possible to point out to the real filesystem.
       of.write('lrwxrwxrwx %s root root %s %s %s -> %s\n' %
                (nlink, size, at, basename, filename))
+    elif use_format == 'tags':
+      output = []
+      for tagv in tags.split():
+        if tagv not in tagvs_encountered:
+          tagvs_encountered.add(tagv)
+          output.extend((tagv, '\n'))
+      of.write(''.join(output))
     count += 1
   of.flush()  # Flush before writing the log message below.
   if count:
