@@ -307,6 +307,7 @@ def Usage(argv0):
           '--stdin : Get filenames from stdin rather than command-line.\n'
           '--format=tuple : Print (filename, tags) Python tuple.\n'
           '--format=sh : Print a series of setfattr commands.\n'
+          '--format=xattr: Print a series of xattr commands.\n'
           '--format=colon\n'
           '--format=name | --firmat=filename | -n (default) : Print filename only.\n'
           '--format=tags : Print tags (including v:...) encountered (deduplicated).\n'
@@ -352,6 +353,8 @@ def main(argv):
       use_format = 'sh'
     elif arg in ('--format=tags', '--format=tagvs'):
       use_format = 'tags'
+    elif arg == '--format=xattr':
+      use_format = 'xattr'
     elif arg == '--format=mclist':  # Midnight Commander extfs list
       use_format = 'mclist'
     elif arg in ('--sh', '--colon', '--mfi', '--mscan'):
@@ -420,6 +423,11 @@ def main(argv):
         of.write(''.join(('setfattr -n user.mmfs.tags -v ', fnq(tags), ' -- ', fnq(filename), '\n')))
       else:  # This shouldn't happen, tags is always nonempty here.
         of.write(''.join(('setfattr -x user.mmfs.tags -- ', fnq(filename), '\n')))
+    elif use_format == 'xattr':
+      if tags:
+        of.write(''.join(('xattr -w user.mmfs.tags -v ', fnq(tags), ' ', fnq(filename), '\n')))
+      else:  # This shouldn't happen, tags is always nonempty here.
+        of.write(''.join(('xattr -d user.mmfs.tags ', fnq(filename), '\n')))
     elif use_format == 'mclist':
       mtime = row[3]
       size = row[4]
