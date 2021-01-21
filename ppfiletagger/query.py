@@ -166,7 +166,6 @@ class GlobalInfo(base.GlobalInfo):
 
   def GenerateQueryResponse(self, query, do_stat, base_filenames):
     # TODO: Print warning if tagdb is not up to date.
-    # TODO: Accept search_root_dir argument.
     if not isinstance(query, str): raise TypeError
     if not self.roots:
       if base_filenames:
