@@ -308,7 +308,6 @@ The old (2009), obsolete, future plans of ppfiletagger:
 TODO
 ~~~~
 # rmtimequery:
-# TODO: support the `|' search operator (disjunction)
 # TODO: make search case sensitive, for compatibility with
 #       ppfiletagger_shell_functions.sh
 # TODO: implement --format=name, --format=tuple, --format=mclist in

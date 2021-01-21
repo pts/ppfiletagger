@@ -32,43 +32,6 @@ from ppfiletagger.good_sqlite import sqlite
 class RootInfo(base.RootInfo):
   """Information about a filesystem root directory."""
 
-  __slots__ = ()  # Also uses the slots of the superclass.
-
-  def GenerateFullTextResponse(self, wordlistc, xattr, do_stat, dirprefix, dirupper, expentry):
-    """Generate (dir, entry, value) matches, in no particular order."""
-    if do_stat:
-      fields = ', mtime, size, nlink'
-    else:
-      fields = ''
-    # INDEXED BY applies only to fileattrs. The FTS3 fulltext index will be
-    # used in filewords in the subquery.
-    indexed_by, extra_and = 'fileattrs_xattr', ''
-    if wordlistc:
-      query = ('SELECT dir, entry, value%s '
-               'FROM fileattrs INDEXED BY %s '
-               'WHERE xattr=? AND filewords_rowid IN '
-               '(SELECT rowid FROM filewords WHERE worddata MATCH (?))%s')
-      values = [xattr, wordlistc]
-    else:
-      query = ('SELECT dir, entry, value%s '
-               'FROM fileattrs INDEXED BY %s '
-               'WHERE xattr=?%s')
-      values = [xattr]
-    if dirprefix:
-      if expentry:
-        # TODO(pts): Don't even consult filewords, do the matching in Python.
-        indexed_by, extra_and = 'fileattrs_nxattr', ' AND dir=? AND entry=?'
-        values.extend((dirprefix, expentry))
-      else:
-        # TODO(pts): Maybe it's faster to ignore wordlistc (and thus
-        # filewords), and do all the matching in Python. Add a command-line
-        # flag.
-        extra_and = ' AND dir>=? AND dir<?'
-        values.extend((dirprefix, dirupper))
-    query = (query % (fields, indexed_by, extra_and), values)
-    for row in self.db.execute(*query):
-      yield row
-
 
 class GlobalInfo(base.GlobalInfo):
   """Queryable info about the indexed state of all mounted filesystems."""
@@ -92,6 +55,43 @@ class GlobalInfo(base.GlobalInfo):
     if rows:
       raise RuntimeError('Unexpected rows returned in enhanced test.')
     return False
+
+  @classmethod
+  def GetFullTextQuery(cls, wordlistcs, is_fts3_enhanced, xattr, do_stat, dirprefix='', dirupper='', expentry=''):
+    """Get query for (dir, entry, value) matches, in no particular order."""
+    if do_stat:
+      fields = ', mtime, size, nlink'
+    else:
+      fields = ''
+    # INDEXED BY applies only to fileattrs. The FTS3 fulltext index will be
+    # used in filewords in the subquery.
+    indexed_by, extra_ands, query_params = 'fileattrs_xattr', [], [xattr]
+    if wordlistcs:
+      if len(wordlistcs) > 1 and is_fts3_enhanced:  # Optimization.
+        wordlistcs = [''.join(('(', ') OR ('.join(wordlistcs), ')'))]
+      query_params.extend(wordlistcs)
+      subqueries = ['SELECT rowid FROM filewords WHERE worddata MATCH ?'] * len(wordlistcs)
+      # TODO(pts): Does the number 10 makes sense here (to avoid
+      # intermediate rowid set merges)?
+      joiner = (' UNION ', ' UNION ALL ')[len(wordlistcs) < 10]
+      extra_ands.append(' AND filewords_rowid IN (%s)' % joiner.join(subqueries))
+    if dirprefix:
+      if expentry:
+        # TODO(pts): Don't even consult filewords, do the matching in Python.
+        indexed_by = 'fileattrs_nxattr'
+        extra_ands.append(' AND dir=? AND entry=?')
+        query_params.extend((dirprefix, expentry))
+      else:
+        # TODO(pts): Maybe it's faster to ignore wordlistc (and thus
+        # filewords), and do all the matching in Python. Add a command-line
+        # flag.
+        extra_ands.append(' AND dir>=? AND dir<?')
+        query_params.extend((dirprefix, dirupper))
+    query = ('SELECT dir, entry, value%s '
+             'FROM fileattrs INDEXED BY %s '
+             'WHERE xattr=?%s' %
+             (fields, indexed_by, ''.join(extra_ands)))
+    return query, query_params
 
   @classmethod
   def GetDbDir(cls, base_filename):
@@ -199,35 +199,38 @@ class GlobalInfo(base.GlobalInfo):
     if matcher_obj.is_impossible:
       logging.info('impossible query, cannot match any files: %s' % query)
     else:
-      if matcher_obj.must_be_untagged:
+      if matcher_obj.has_must_be_untagged:
         raise matcher.BadQuery(
-            'query matches only files without tags (no database of those)')
-      if not matcher_obj.must_be_tagged:
+            'query attempts to matches files without tags (no database of those)')
+      if not matcher_obj.all_must_be_tagged:
         raise matcher.BadQuery(
             'query may match files without tags (no database of those)')
       do_assume_match = matcher_obj.do_assume_match
-      # Matching with only negative terms in SQLite would fail with
-      # sqlite.OperationalError('SQL logic error or missing database') for
-      # the standard query syntax, and it fails with another message for the
-      # enhanced query syntax.
-      wordlistc = ''
-      if matcher_obj.with_tags:
-        wordlistc = base.QueryToWordData(' '.join(
-            sorted(matcher_obj.with_tags) +
-            sorted('-' + tag for tag in matcher_obj.without_tags)))
+      wordlistcs = map(base.QueryToWordData, matcher_obj.ftqclauses)
+      has_negative = bool([1 for ftqclause in matcher_obj.ftqclauses if '-' in ftqclause])
       is_fts3_enhanced = None
-      if '-' not in wordlistc:
+      if not (has_negative or len(wordlistcs) > 1):
         is_fts3_enhanced = False  # Optimization.
+      if len(matcher_obj.clauses) == 1:
+        does_match_func = matcher_obj.clauses[0].DoesMatch  # Optimization.
+      else:
+        does_match_func = matcher_obj.DoesMatch
+      query_kwargs = None
       for scan_root_dir in self.roots:
         root_info = self.roots[scan_root_dir]
         if is_fts3_enhanced is None:
           is_fts3_enhanced = self.IsFts3Enhanced(root_info.db)
-          if is_fts3_enhanced and '-' in wordlistc:
+          if is_fts3_enhanced and has_negative:
             # SQLite requires that NOT does not come first, but wordlistc
             # ensures it.
-            wordlistc = wordlistc.replace(' -', ' NOT ')
-        root_slash = root_info.root_dir
-        if not root_slash.endswith('/'): root_slash += '/'
+            wordlistcs[:] = (wordlistc.replace(' -', ' NOT ') for wordlistc in wordlistcs)
+        if query_kwargs is None:
+          query_kwargs = dict(
+              wordlistcs=wordlistcs, is_fts3_enhanced=is_fts3_enhanced,
+              xattr=root_info.FILEWORDS_XATTRS[0], do_stat=do_stat)
+          if subdir_restricts is None:
+            query, query_params = self.GetFullTextQuery(**query_kwargs)
+            restrict_tuples, good_pairs = (('', '', ''),), None
         if subdir_restricts is not None:
           restrict_tuples = subdir_restricts[root_info.root_dir]
           good_pairs = {}
@@ -240,15 +243,16 @@ class GlobalInfo(base.GlobalInfo):
               break
           if good_pairs is not None:
             restrict_tuples = (('', '', ''),)
-        else:
-          restrict_tuples, good_pairs = (('', '', ''),), None
+        root_slash = root_info.root_dir
+        if not root_slash.endswith('/'): root_slash += '/'
         for dirprefix, dirupper, expentry in restrict_tuples:
           lp = len(dirprefix)
           lp1 = lp + 1
-          for row in root_info.GenerateFullTextResponse(
-              wordlistc=wordlistc,
-              xattr=root_info.FILEWORDS_XATTRS[0], do_stat=do_stat,
-              dirprefix=dirprefix, dirupper=dirupper, expentry=expentry):
+          if subdir_restricts is not None:
+            query_kwargs.update(dict(
+                dirprefix=dirprefix, dirupper=dirupper, expentry=expentry))
+            query, query_params = self.GetFullTextQuery(**query_kwargs)
+          for row in root_info.db.execute(query, query_params):
             dirname = row[0]
             entry = row[1]
             tags = row[2]
@@ -262,13 +266,12 @@ class GlobalInfo(base.GlobalInfo):
               count = good_pairs.get((dirname, entry), 0)
               if not count:
                 continue
-            if dirname == '.':
-              filename = root_slash + entry
-            else:
-              filename = ''.join((root_slash, dirname[2:], '/', entry))
-            if do_assume_match or matcher_obj.DoesMatch(filename, tags, False):
+            if do_assume_match or does_match_func(entry, tags, False):
               row = list(row)
-              row[1] = filename
+              if dirname == '.':
+                row[1] = root_slash + entry
+              else:
+                row[1] = ''.join((root_slash, dirname[2:], '/', entry))
               for _ in xrange(count):
                 yield row
 
