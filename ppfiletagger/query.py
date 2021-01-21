@@ -298,6 +298,9 @@ def gfaq(data):
   return ''.join(('"', data, '"'))
 
 
+TAGSEP_RE = re.compile(r'[\s,]')
+
+
 def Usage(argv0):
   # Command-line should be similar to _mmfs find.
   return ('%s: searches for matching files, prints list or dump to stdout\n'
@@ -315,9 +318,10 @@ def Usage(argv0):
           '--format=xattr : Print a series of xattr commands.\n'
           '--format=colon : Print in the colon format: <tags> :: <filename>\n'
           '--format=getfattr : Print the same output as: getfattr -e text\n'
+          '--format=mfi : Print in the mediafileinfo format.\n'
           '--format=name | --firmat=filename | -n (default) : Print filename only.\n'
           '--format=tags : Print tags (including v:...) encountered (deduplicated).\n'
-          '--format=mclist\n'
+          '--format=mclist : Print Midnight Commander extfs file listing.\n'
           '--recursive=yes (default w/o --stdin) : Dump directories, recursively.\n'
           '--recursive=no : Dump files only.\n'
           '--help : Print this help.\n'
@@ -363,6 +367,8 @@ def main(argv):
       use_format = 'xattr'
     elif arg == '--format=getfattr':
       use_format = 'getfattr'
+    elif arg in ('--format=mfi', '--format=mediafileinfo', '--format=mscan'):
+      use_format = 'mfi'
     elif arg == '--format=mclist':  # Midnight Commander extfs list
       use_format = 'mclist'
     elif arg in ('--sh', '--colon', '--mfi', '--mscan'):
@@ -415,11 +421,12 @@ def main(argv):
   of = sys.stdout
   tagvs_encountered = set()
   for row in GlobalInfo().GenerateQueryResponse(
-      query=query, do_stat=(use_format == 'mclist'),
+      query=query, do_stat=(use_format in ('mclist', 'mfi')),
       base_filenames=base_filenames, is_recursive=is_recursive):
     filename, tags = row[1], row[2]
     if printfn is not None:
       filename = printfn
+    # TODO(pts): Use a lookup table instead of `if use_format' below.
     if use_format == 'filename':
       of.write(filename + '\n')
     elif use_format == 'tuple':
@@ -441,6 +448,12 @@ def main(argv):
       # extended attribute). Use _cmd_dump --print-empty=no
       # to get this behavior.
       of.write(''.join(('# file: ', filename, '\nuser.mmfs.tags=', gfaq(tags), '\n\n')))
+    elif use_format == 'mfi':
+      mtime, size = row[3], row[4]
+      if '\n' in filename:
+        raise ValueError('Filename contains newline.')
+      tagsc = TAGSEP_RE.sub(',', tags).strip(',').replace('%', '%25')
+      of.write(''.join(('format=?-no-try mtime=', str(mtime), ' size=', str(size), ' tags=', tagsc, ' f=', filename, '\n')))
     elif use_format == 'mclist':
       mtime = row[3]
       size = row[4]
