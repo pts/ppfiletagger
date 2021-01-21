@@ -320,6 +320,8 @@ def main(argv):
       use_format = 'filename'
     elif arg == '--format=mclist':  # Midnight Commander extfs list
       use_format = 'mclist'
+    elif arg in ('--sh', '--colon', '--mfi', '--mscan'):
+      use_format = arg[2:]
     elif arg == '--help':
       print >>sys.stderr, Usage(argv[0])
       return 0
