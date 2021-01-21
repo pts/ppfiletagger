@@ -94,7 +94,7 @@ class GlobalInfo(base.GlobalInfo):
     return query, query_params
 
   @classmethod
-  def GetDbDir(cls, base_filename):
+  def GetDbDir(cls, base_filename, is_recursive):
     """Find database filename by going up from base_filename."""
     try:
       st = os.lstat(base_filename)
@@ -117,6 +117,8 @@ class GlobalInfo(base.GlobalInfo):
       else:
         db_dirname, dirprefix, entry = base_filename[:i].rstrip('/') + '/', [], base_filename[i + 1:]
     elif stat.S_ISDIR(st.st_mode):
+      if not is_recursive:
+        return '', '', ''
       db_dirname, dirprefix, entry = base_filename.rstrip('/') + '/', [], ''
     else:  # Symlinks are also disallowed.
       raise RuntimeError('Unknown file type in search base: ' + base_filename)
@@ -164,14 +166,17 @@ class GlobalInfo(base.GlobalInfo):
         return upper[:-1] + chr(ord(upper[-1]) + 1)
       upper = upper[:-1]
 
-  def GenerateQueryResponse(self, query, do_stat, base_filenames):
+  def GenerateQueryResponse(self, query, do_stat, base_filenames, is_recursive):
     # TODO: Print warning if tagdb is not up to date.
     if not isinstance(query, str): raise TypeError
     if not self.roots:
       if base_filenames:
-        subdir_restricts = {}
+        subdir_restricts, dirupper, has_skip = {}, '', False
         for base_filename in base_filenames:
-          db_dirname, dirprefix, expentry = self.GetDbDir(base_filename)
+          db_dirname, dirprefix, expentry = self.GetDbDir(base_filename, is_recursive)
+          if not db_dirname:  # base_filename not a file.
+            has_skip = True
+            continue
           dirupper = ''
           if not expentry:
             dirupper = self.GetUpperLimitForPrefix(dirprefix)
@@ -185,7 +190,7 @@ class GlobalInfo(base.GlobalInfo):
         subdir_restricts = None
       self.OpenTagDBs(mounts)
       if subdir_restricts is not None:
-        assert sorted(subdir_restricts) == sorted(self.roots), (
+        assert has_skip or sorted(subdir_restricts) == sorted(self.roots), (
             sorted(subdir_restricts), sorted(self.roots))
       del mounts
     else:
@@ -217,6 +222,8 @@ class GlobalInfo(base.GlobalInfo):
       query_kwargs = None
       for scan_root_dir in self.roots:
         root_info = self.roots[scan_root_dir]
+        if root_info is None:
+          continue
         if is_fts3_enhanced is None:
           is_fts3_enhanced = self.IsFts3Enhanced(root_info.db)
           if is_fts3_enhanced and has_negative:
@@ -289,6 +296,8 @@ def Usage(argv0):
           '--format=colon\n'
           '--format=name | --firmat=filename | -n (default) : Print filename only.\n'
           '--format=mclist\n'
+          '--recursive=yes (default) : Dump directories, recursively.\n'
+          '--recursive=no : Dump files only.\n'
           '--help : Print this help.\n'
           'It reports an error when searching for files without tags.\n'
           'It follows symlinks.\n'
@@ -298,6 +307,7 @@ def Usage(argv0):
 def main(argv):
   use_format = 'filename'
   query = None
+  is_recursive = True
   i = 1
   while i < len(argv):
     arg = argv[i]
@@ -322,6 +332,10 @@ def main(argv):
       use_format = 'mclist'
     elif arg in ('--sh', '--colon', '--mfi', '--mscan'):
       use_format = arg[2:]
+    elif arg == '--recursive=yes':
+      is_recursive = True
+    elif arg == '--recursive=no':
+      is_recursive = False
     elif arg == '--help':
       print >>sys.stderr, Usage(argv[0])
       return 0
@@ -340,13 +354,17 @@ def main(argv):
     query = argv[i]
     i += 1
   base_filenames = argv[i:]
+  if not (is_recursive or base_filenames):
+    print >>sys.stderr, 'fatal: incompatible arguments: --recursive=no needs <filename>'
+    return 1
   if use_format == 'mclist':
     logging.root.setLevel(logging.WARN)  # Prints WARN and ERROR, but not INFO.
 
   count = 0
   of = sys.stdout
   for row in GlobalInfo().GenerateQueryResponse(
-      query=query, do_stat=(use_format == 'mclist'), base_filenames=base_filenames):
+      query=query, do_stat=(use_format == 'mclist'),
+      base_filenames=base_filenames, is_recursive=is_recursive):
     filename = row[1]
     if use_format == 'filename':
       of.write(filename + '\n')
