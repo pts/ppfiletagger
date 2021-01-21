@@ -170,8 +170,9 @@ class GlobalInfo(base.GlobalInfo):
     # TODO: Print warning if tagdb is not up to date.
     if not isinstance(query, str): raise TypeError
     if not self.roots:
-      if base_filenames:
-        subdir_restricts, dirupper, has_skip = {}, '', False
+      if base_filenames is not None:
+        subdir_restricts, has_skip = {}, False
+        db_dirname = dirprefix = dirupper = expentry = None
         for base_filename in base_filenames:
           db_dirname, dirprefix, expentry = self.GetDbDir(base_filename, is_recursive)
           if not db_dirname:  # base_filename not a file.
@@ -190,7 +191,7 @@ class GlobalInfo(base.GlobalInfo):
         subdir_restricts = None
       self.OpenTagDBs(mounts)
       if subdir_restricts is not None:
-        assert has_skip or sorted(subdir_restricts) == sorted(self.roots), (
+        assert has_skip or sorted(subdir_restricts) == sorted(key for key, value in self.roots.iteritems() if value is not None), (
             sorted(subdir_restricts), sorted(self.roots))
       del mounts
     else:
@@ -293,12 +294,13 @@ def Usage(argv0):
           '--print-empty=yes | --any : Same as --tagquery=:any\n'
           '--print-empty=no | --tagged : Same as --tagquery=:tagged\n'
           '--untagged : Same as --tagquery=:none , prints files without tags.\n'
+          '--stdin : Get filenames from stdin rather than command-line.\n'
           '--format=tuple\n'
           '--format=colon\n'
           '--format=name | --firmat=filename | -n (default) : Print filename only.\n'
           '--format=tags : Print tags (including v:...) encountered (deduplicated).\n'
           '--format=mclist\n'
-          '--recursive=yes (default) : Dump directories, recursively.\n'
+          '--recursive=yes (default w/o --stdin) : Dump directories, recursively.\n'
           '--recursive=no : Dump files only.\n'
           '--help : Print this help.\n'
           'It reports an error when searching for files without tags.\n'
@@ -309,7 +311,8 @@ def Usage(argv0):
 def main(argv):
   use_format = 'filename'
   query = printfn = None
-  is_recursive = True
+  is_recursive = None
+  is_stdin = False
   i = 1
   while i < len(argv):
     arg = argv[i]
@@ -326,6 +329,8 @@ def main(argv):
       query = ':tagged'
     elif arg == '--untagged':
       query = ':none'
+    elif arg == '--stdin':
+      is_stdin = True
     elif arg == '--format=tuple':
       use_format = 'tuple'
     elif arg == '--format=colon':
@@ -359,8 +364,24 @@ def main(argv):
       return 1
     query = argv[i]
     i += 1
-  base_filenames = argv[i:]
-  if not (is_recursive or base_filenames):
+  if is_stdin:
+    if i != len(argv):
+      print >>sys.stderr, 'fatal: too many command-line arguments'
+    base_filenames = []
+    for line in iter(sys.stdin.readline, ''):
+      if not line.endswith('\n'):
+        print >>sys.stderr, 'fatal: incomplete line in filename: ' + line
+      # Files may get reordered in the output, depending on the
+      # nondeterministic order they are returned by the query on the index
+      # database.
+      base_filenames.append(line[:-1])
+  elif i == len(argv):
+    base_filenames = None
+  else:
+    base_filenames = argv[i:]
+  if is_recursive is None:
+    is_recursive = not is_stdin
+  if not is_recursive and base_filenames is None:
     print >>sys.stderr, 'fatal: incompatible arguments: --recursive=no needs <filename>'
     return 1
   if use_format == 'mclist':
