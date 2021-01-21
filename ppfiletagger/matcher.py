@@ -363,7 +363,10 @@ class Matcher(object):
 if __name__ == '__main__':
   import sys
   if len(sys.argv) < 2:
-    sys.stderr.write('Usage: %s <tagquery> ["<filetags>" <filename> ...]\n' % sys.argv[0])
+    sys.stderr.write(
+        '%s: debug tool for matching tags against queries\n'
+        'Usage: %s <tagquery> ["<filetags>" <filename> ...]\n'
+        % (sys.argv[0], sys.argv[0]))
     sys.exit(1)
   query = sys.argv[1]
   if '|' in query:
