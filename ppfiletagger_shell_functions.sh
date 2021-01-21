@@ -1048,8 +1048,8 @@ sub get_format_func($;$) {
 
 my $format_usage =
 "--format=sh (default) : Print a series of setfattr commands.
---format=xattr: Print a series of xattr commands.
---format=colon: Print in the colon format: <tags> :: <filename>
+--format=xattr : Print a series of xattr commands.
+--format=colon : Print in the colon format: <tags> :: <filename>
 --format=getfattr : Print the same output as: getfattr -e text
 --format=mfi : Print in the mediafileinfo format.
 --format=filename : Print filename only.
