@@ -288,6 +288,7 @@ def Usage(argv0):
           "Usage: %s [<flag> ...] ['<tagquery>'] [<filename> ...]\n"
           'Without a <filename>, indexes on all filesystems are searched.\n'
           'Flags:\n'
+          '--printfn=<filename> : In the output, print the specified filename instead.\n'
           '--tagquery=<tagquery> : Print files with matching tags.\n'
           '--print-empty=yes | --any : Same as --tagquery=:any\n'
           '--print-empty=no | --tagged : Same as --tagquery=:tagged\n'
@@ -307,7 +308,7 @@ def Usage(argv0):
 
 def main(argv):
   use_format = 'filename'
-  query = None
+  query = printfn = None
   is_recursive = True
   i = 1
   while i < len(argv):
@@ -317,6 +318,8 @@ def main(argv):
       break
     elif arg.startswith('--tagquery='):
       query = arg[arg.find('=') + 1:]
+    elif arg.startswith('--printfn='):
+      printfn = arg[arg.find('=') + 1:]
     elif arg in ('--print-empty=yes', '--any'):
       query = ':any'
     elif arg in ('--print-empty=no', '--tagged'):
@@ -370,6 +373,8 @@ def main(argv):
       query=query, do_stat=(use_format == 'mclist'),
       base_filenames=base_filenames, is_recursive=is_recursive):
     filename, tags = row[1], row[2]
+    if printfn is not None:
+      filename = printfn
     if use_format == 'filename':
       of.write(filename + '\n')
     elif use_format == 'tuple':
