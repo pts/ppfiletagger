@@ -276,25 +276,33 @@ class GlobalInfo(base.GlobalInfo):
 
 
 def Usage(argv0):
-  return ("Usage: %s [<flag> ...] ['<tagquery>'] [<filename> ...]\n" % argv0 +
-          'Without a <filename>, all filesystems are searched.\n'
+  # Command-line should be similar to _mmfs find.
+  return ('%s: searches for matching files, prints list or dump to stdout\n'
+          "Usage: %s [<flag> ...] ['<tagquery>'] [<filename> ...]\n"
+          'Without a <filename>, indexes on all filesystems are searched.\n'
           'Flags:\n'
+          '--tagquery=<tagquery> : Print files with matching tags.\n'
           '--format=tuple\n'
           '--format=colon\n'
           '--format=name | -n\n'
           '--format=mclist\n'
-          '--help\n'
-         ).rstrip()
+          '--help : Print this help.\n'
+          'It reports an error when searching for files without tags.\n'
+          'It follows symlinks.\n'
+          % (argv0, argv0)).rstrip()
 
 
 def main(argv):
   use_format = 'tuple'
+  query = None
   i = 1
   while i < len(argv):
     arg = argv[i]
     if arg == '--':
       i += 1
       break
+    elif arg.startswith('--tagquery='):
+      query = arg[arg.find('=') + 1:]
     elif arg == '--format=tuple':
       use_format = 'tuple'
     elif arg == '--format=colon':
@@ -313,12 +321,13 @@ def main(argv):
       print >>sys.stderr, 'fatal: unknown flag: %s' % arg
       return 1
     i += 1
-  if i >= len(argv):
-    print >>sys.stderr, Usage(argv[0])
-    print >>sys.stderr, 'fatal: missing query'
-    return 1
-  query = argv[i]
-  i += 1
+  if query is None:
+    if i >= len(argv):
+      print >>sys.stderr, Usage(argv[0])
+      print >>sys.stderr, 'fatal: missing query'
+      return 1
+    query = argv[i]
+    i += 1
   base_filenames = argv[i:]
   if use_format == 'mclist':
     logging.root.setLevel(logging.WARN)  # Prints WARN and ERROR, but not INFO.
