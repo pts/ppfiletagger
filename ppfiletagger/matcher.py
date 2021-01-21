@@ -172,6 +172,7 @@ class Matcher(object):
         self.must_be_tagged = True
         self.with_tags.clear()
       self.without_tags.clear()  # Optimization.
+      self.with_oter_tags.clear()  # Optimization.
     if self.with_tags:
       self.must_be_tagged = True
       self.wordlistc = QueryToWordData(' '.join(pntags))
