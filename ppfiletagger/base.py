@@ -39,6 +39,51 @@ def EntryOf(filename):
     return filename
 
 
+WORDDATA_NONWORDCHAR_RE = re.compile(r'[^a-z0-9:_ ]')
+WORDDATA_SPLIT_WORD_RE = re.compile(r'[^\s?!.,;\[\](){}<>"\']+')
+PTAG_TO_SQLITEWORD_RE = re.compile(r'[6789:_]')  # Duplicates matcher.py.
+PTAG_TO_SQLITEWORD_DICT = {  # Duplicates matcher.py.
+  '6': '66',
+  '7': '65',
+  '8': '64',
+  '9': '63',
+  ':': '7',
+  '_': '8',
+}
+
+
+def ValueToWordListc(value):
+  """Return a list of normalized words concatenated by space."""
+  if not isinstance(value, str): raise TypeError
+  return re.sub(WORDDATA_NONWORDCHAR_RE, '_', ' '.join(
+      match.group(0).lower()
+      for match in WORDDATA_SPLIT_WORD_RE.finditer(value)))
+
+
+# TODO: Move this to a test.
+assert 'i said: hello wonderful_world 0123456789' == ValueToWordListc('  I said:\tHello,  Wonderful_World! 0123456789\r\n')
+
+
+def ValueToWordData(value):
+  """Return fileattrs.value converted to filewords.worddata."""
+  if not isinstance(value, str): raise TypeError
+  return PTAG_TO_SQLITEWORD_RE.sub(
+      (lambda match: PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
+      ValueToWordListc(value))
+
+
+# TODO: Move this to a test.
+assert 'i said7 hello wonderful8world 01234566656463' == ValueToWordData('I said: Hello,  Wonderful_World! 0123456789')
+
+
+def QueryToWordData(query):
+  """Return SQLite fulltext query converted to filewords.worddata."""
+  if not isinstance(query, str): raise TypeError
+  return PTAG_TO_SQLITEWORD_RE.sub(
+      (lambda match: PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
+      query)
+
+
 class RootInfo(object):
   """Information about a filesystem root directory."""
 
@@ -56,40 +101,6 @@ class RootInfo(object):
     self.last_scan_at = last_scan_at
     self.tagdb_name = tagdb_name
     self.had_last_incremental = False
-    #import sys; print >>sys.stderr, self, self.__slots__  # !!
-
-  WORDDATA_NONWORDCHAR_RE = re.compile(r'[^a-z0-9:_ ]')
-  WORDDATA_SPLIT_WORD_RE = re.compile(r'[^\s?!.,;\[\](){}<>"\']+')
-  PTAG_TO_SQLITEWORD_RE = re.compile(r'[6789:_]')  # Duplicates matcher.py.
-  PTAG_TO_SQLITEWORD_DICT = {  # Duplicates matcher.py.
-    '6': '66',
-    '7': '65',
-    '8': '64',
-    '9': '63',
-    ':': '7',
-    '_': '8',
-  }
-
-  def ValueToWordListc(self, value):
-    """Return a list of normalized words concatenated by space."""
-    if not isinstance(value, str): raise TypeError
-    words = []
-    re.sub(  # Igore return value, only update words.
-        self.WORDDATA_SPLIT_WORD_RE,
-        (lambda match: words.append(match.group(0).lower())), value)
-    return re.sub(self.WORDDATA_NONWORDCHAR_RE, '_', ' '.join(words))
-
-  def ValueToWordData(self, value):
-    """Return fileattrs.value converted to filewords.worddata."""
-    if not isinstance(value, str): raise TypeError
-    return re.sub(
-        self.PTAG_TO_SQLITEWORD_RE,
-        (lambda match: self.PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
-        self.ValueToWordListc(value))
-
-# TODO: move this to a test
-assert 'i said: hello wonderful_world 0123456789' == RootInfo(db=None, root_dir=None, last_scan_at=None, tagdb_name=None).ValueToWordListc('  I said:\tHello,  Wonderful_World! 0123456789\r\n')
-assert 'i said7 hello wonderful8world 01234566656463' == RootInfo(db=None, root_dir=None, last_scan_at=None, tagdb_name=None).ValueToWordData('I said: Hello,  Wonderful_World! 0123456789')
 
 
 class GlobalInfo(object):

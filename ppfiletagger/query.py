@@ -94,20 +94,6 @@ class GlobalInfo(base.GlobalInfo):
     return False
 
   @classmethod
-  def ConvertToFts3Enhanced(cls, wordlistc):
-    positives, negatives = [], []
-    for word in wordlistc.split():
-      if word.startswith('-'):
-        negatives.append('NOT ' + word[1:])
-      elif word:
-        positives.append(word)
-    if negatives and not positives:
-      # Matcher ensures that this doesn't happen.
-      raise ValueError('No positive words in wordlistc.')
-    positives.extend(negatives)
-    return ' '.join(positives)
-
-  @classmethod
   def GetDbDir(cls, base_filename):
     """Find database filename by going up from base_filename."""
     try:
@@ -182,7 +168,6 @@ class GlobalInfo(base.GlobalInfo):
     # TODO: Print warning if tagdb is not up to date.
     # TODO: Accept search_root_dir argument.
     if not isinstance(query, str): raise TypeError
-    wordlistc = None
     if not self.roots:
       if base_filenames:
         subdir_restricts = {}
@@ -221,7 +206,16 @@ class GlobalInfo(base.GlobalInfo):
         raise matcher.BadQuery(
             'query may match files without tags (no database of those)')
       do_assume_match = matcher_obj.do_assume_match
-      is_fts3_enhanced, wordlistc = None, matcher_obj.wordlistc
+      # Matching with only negative terms in SQLite would fail with
+      # sqlite.OperationalError('SQL logic error or missing database') for
+      # the standard query syntax, and it fails with another message for the
+      # enhanced query syntax.
+      wordlistc = ''
+      if matcher_obj.with_tags:
+        wordlistc = base.QueryToWordData(' '.join(
+            sorted(matcher_obj.with_tags) +
+            sorted('-' + tag for tag in matcher_obj.without_tags)))
+      is_fts3_enhanced = None
       if '-' not in wordlistc:
         is_fts3_enhanced = False  # Optimization.
       for scan_root_dir in self.roots:
@@ -229,7 +223,9 @@ class GlobalInfo(base.GlobalInfo):
         if is_fts3_enhanced is None:
           is_fts3_enhanced = self.IsFts3Enhanced(root_info.db)
           if is_fts3_enhanced and '-' in wordlistc:
-            wordlistc = self.ConvertToFts3Enhanced(wordlistc)
+            # SQLite requires that NOT does not come first, but wordlistc
+            # ensures it.
+            wordlistc = wordlistc.replace(' -', ' NOT ')
         root_slash = root_info.root_dir
         if not root_slash.endswith('/'): root_slash += '/'
         if subdir_restricts is not None:

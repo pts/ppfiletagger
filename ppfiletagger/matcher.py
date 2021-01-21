@@ -23,35 +23,16 @@ class BadQuery(Exception):
   """Raised when a <tagquery> is bad (e.g. syntax error)."""
 
 
-PTAG_TO_SQLITEWORD_RE = re.compile(r'[6789:_]')  # Duplicates base.py.
-PTAG_TO_SQLITEWORD_DICT = {  # Duplicates base.py.
-  '6': '66',
-  '7': '65',
-  '8': '64',
-  '9': '63',
-  ':': '7',
-  '_': '8',
-}
-
 # Simple superset of UTF-8 words.
 # Corresponds to $tagchar_re in ppfiletagger_shell_functions.sh.
 TAGVM_RE = re.compile(r'-?(?:v:)?(?:\w|[\xC2-\xDF][\x80-\xBF]|[\xE0-\xEF][\x80-\xBF]{2}|[\xF0-\xF4][\x80-\xBF]{3})+\Z')
-
-
-def QueryToWordData(query):
-  """Return SQLite fulltext query converted to filewords.worddata."""
-  if not isinstance(query, str): raise TypeError
-  return re.sub(
-      PTAG_TO_SQLITEWORD_RE,
-      (lambda match: PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
-      query)
 
 
 class Matcher(object):
   """Class to match rows against the specified query."""
 
   # Users of Matcher shouldn't change these directly.
-  __slots__ = ('wordlistc', 'must_be_tagged', 'must_be_untagged',
+  __slots__ = ('must_be_tagged', 'must_be_untagged',
                'with_any_exts', 'without_exts', 'with_tags', 'without_tags',
                'with_other_tags',
                'do_assume_match', 'do_assume_tags_match', 'is_impossible')
@@ -84,7 +65,6 @@ class Matcher(object):
     self.do_assume_match = None
     # Can the SQLite MATCH operator can determine the result of the tag match?
     self.do_assume_tags_match = None
-    self.wordlistc = None
     self.must_be_tagged = False
     self.must_be_untagged = False
     self.with_any_exts = None  # Allow anything.
@@ -99,7 +79,6 @@ class Matcher(object):
     if not terms:
       raise BadQuery('empty query')
     # Positive and negative tags.
-    pntags = []
     self.with_tags = set()
     self.without_tags = set()  # Without the leading '-'.
     self.with_other_tags = set()  # Without the leading '*-'.
@@ -163,25 +142,13 @@ class Matcher(object):
           self.without_tags.add(term[1:])
         else:
           self.with_tags.add(term)
-        pntags.append(term)
 
-    if self.with_other_tags:
+    if self.with_tags or self.with_other_tags:
       self.must_be_tagged = True
     if self.must_be_untagged:
-      if self.with_tags:
-        self.must_be_tagged = True
-        self.with_tags.clear()
+      self.with_tags.clear()  # Optimization after setting self.must_be_tagged.
       self.without_tags.clear()  # Optimization.
-      self.with_oter_tags.clear()  # Optimization.
-    if self.with_tags:
-      self.must_be_tagged = True
-      self.wordlistc = QueryToWordData(' '.join(pntags))
-    else:
-      # We don't event try to match negative tags only, it fails with
-      # sqlite.OperationalError('SQL logic error or missing database') for
-      # the standard query syntax, and it fails with another message for the
-      # enhanced query syntax.
-      self.wordlistc = ''
+      self.with_other_tags.clear()  # Optimization.
 
     # Is it impossible that this Matcher ever matches a file?
     self.is_impossible = bool(
@@ -207,7 +174,7 @@ class Matcher(object):
           or whitespace-only.
       do_full_match: bool: if true, match on everything; if false, skip some
           matches assuming that the SQLite MATCH operator has already matched
-          self.wordlistc and tags is not empty.
+          and tags is not empty (or whitespace-only).
     """
     if not do_full_match and self.do_assume_match:
       return True
