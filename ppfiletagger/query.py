@@ -282,6 +282,9 @@ def Usage(argv0):
           'Without a <filename>, indexes on all filesystems are searched.\n'
           'Flags:\n'
           '--tagquery=<tagquery> : Print files with matching tags.\n'
+          '--print-empty=yes | --any : Same as --tagquery=:any\n'
+          '--print-empty=no | --tagged : Same as --tagquery=:tagged\n'
+          '--untagged : Same as --tagquery=:none , prints files without tags.\n'
           '--format=tuple\n'
           '--format=colon\n'
           '--format=name | -n\n'
@@ -303,6 +306,12 @@ def main(argv):
       break
     elif arg.startswith('--tagquery='):
       query = arg[arg.find('=') + 1:]
+    elif arg in ('--print-empty=yes', '--any'):
+      query = ':any'
+    elif arg in ('--print-empty=no', '--tagged'):
+      query = ':tagged'
+    elif arg == '--untagged':
+      query = ':none'
     elif arg == '--format=tuple':
       use_format = 'tuple'
     elif arg == '--format=colon':
