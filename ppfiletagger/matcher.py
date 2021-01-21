@@ -202,10 +202,11 @@ class Matcher(object):
 
     Args:
       filename: Absolute filename (starting with /).
-      tags: String containing positive tags separated by spaces. Can be empty.
+      tags: String containing positive tags separated by whitespace. Can be empty
+          or whitespace-only.
       do_full_match: bool: if true, match on everything; if false, skip some
           matches assuming that the SQLite MATCH operator has already matched
-          self.wordlistc.
+          self.wordlistc and tags is not empty.
     """
     if not do_full_match and self.do_assume_match:
       return True
