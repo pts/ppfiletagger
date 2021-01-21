@@ -310,13 +310,11 @@ TODO
 # rmtimequery:
 # TODO: make search case sensitive, for compatibility with
 #       ppfiletagger_shell_functions.sh
+# TODO: add only tags (no other extended attributes) to the database
 # TODO: implement --format=name, --format=tuple, --format=mclist in
 #       ppfiletagger_shell_functions.sh
-# TODO: implement --format=sh, --format=xattr,
-#       --format=getfattr, --format=mfi, --format=tags.
 # TODO: ppfiletagger_shell_functions.sh fnq should quote empty string
 # TODO: ppfiletagger_shell_functions.sh shouldn't follow symlinks to directories
-# TODO: add only tags (no other extended attributes) to the database
 # TODO: add Midnight Commander integration for search
 # rmtimescan:
 # TODO: doc: write about what happens if we remount elsewhere
