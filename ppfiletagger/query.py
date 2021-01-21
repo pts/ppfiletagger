@@ -292,6 +292,11 @@ def fnq(data):
   return ''.join(("'", data.replace("'", "'\\''"), "'"))
 
 
+def gfaq(data):
+  data = data.replace('\\', r'\\').replace('"', r'\"').replace('\r', r'\015').replace('\n', r'\012')
+  # No need to escape [\x80-\xff] , `getfattr -e text` does not do it either.
+  return ''.join(('"', data, '"'))
+
 
 def Usage(argv0):
   # Command-line should be similar to _mmfs find.
@@ -307,8 +312,9 @@ def Usage(argv0):
           '--stdin : Get filenames from stdin rather than command-line.\n'
           '--format=tuple : Print (filename, tags) Python tuple.\n'
           '--format=sh : Print a series of setfattr commands.\n'
-          '--format=xattr: Print a series of xattr commands.\n'
-          '--format=colon\n'
+          '--format=xattr : Print a series of xattr commands.\n'
+          '--format=colon : Print in the colon format: <tags> :: <filename>\n'
+          '--format=getfattr : Print the same output as: getfattr -e text\n'
           '--format=name | --firmat=filename | -n (default) : Print filename only.\n'
           '--format=tags : Print tags (including v:...) encountered (deduplicated).\n'
           '--format=mclist\n'
@@ -355,6 +361,8 @@ def main(argv):
       use_format = 'tags'
     elif arg == '--format=xattr':
       use_format = 'xattr'
+    elif arg == '--format=getfattr':
+      use_format = 'getfattr'
     elif arg == '--format=mclist':  # Midnight Commander extfs list
       use_format = 'mclist'
     elif arg in ('--sh', '--colon', '--mfi', '--mscan'):
@@ -428,6 +436,11 @@ def main(argv):
         of.write(''.join(('xattr -w user.mmfs.tags -v ', fnq(tags), ' ', fnq(filename), '\n')))
       else:  # This shouldn't happen, tags is always nonempty here.
         of.write(''.join(('xattr -d user.mmfs.tags ', fnq(filename), '\n')))
+    elif use_format == 'getfattr':
+      # getfattr always omits files without tags (i.e. without the
+      # extended attribute). Use _cmd_dump --print-empty=no
+      # to get this behavior.
+      of.write(''.join(('# file: ', filename, '\nuser.mmfs.tags=', gfaq(tags), '\n\n')))
     elif use_format == 'mclist':
       mtime = row[3]
       size = row[4]
