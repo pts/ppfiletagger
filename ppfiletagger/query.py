@@ -283,6 +283,16 @@ class GlobalInfo(base.GlobalInfo):
                 yield row
 
 
+FNQ_RE = re.compile(r'[^-_/.0-9a-zA-Z]')
+
+
+def fnq(data):
+  if data and not FNQ_RE.search(data):
+    return data
+  return ''.join(("'", data.replace("'", "'\\''"), "'"))
+
+
+
 def Usage(argv0):
   # Command-line should be similar to _mmfs find.
   return ('%s: searches for matching files, prints list or dump to stdout\n'
@@ -295,7 +305,8 @@ def Usage(argv0):
           '--print-empty=no | --tagged : Same as --tagquery=:tagged\n'
           '--untagged : Same as --tagquery=:none , prints files without tags.\n'
           '--stdin : Get filenames from stdin rather than command-line.\n'
-          '--format=tuple\n'
+          '--format=tuple : Print (filename, tags) Python tuple.\n'
+          '--format=sh : Print a series of setfattr commands.\n'
           '--format=colon\n'
           '--format=name | --firmat=filename | -n (default) : Print filename only.\n'
           '--format=tags : Print tags (including v:...) encountered (deduplicated).\n'
@@ -337,6 +348,8 @@ def main(argv):
       use_format = 'colon'
     elif arg in ('-n', '--format=name', '--format=filename'):
       use_format = 'filename'
+    elif arg in ('--format=sh', '--format=setfattr'):
+      use_format = 'sh'
     elif arg in ('--format=tags', '--format=tagvs'):
       use_format = 'tags'
     elif arg == '--format=mclist':  # Midnight Commander extfs list
@@ -402,6 +415,11 @@ def main(argv):
       of.write(repr((filename, tags)) + '\n')
     elif use_format == 'colon':
       of.write(''.join((tags, ' :: ', filename, '\n')))
+    elif use_format == 'sh':
+      if tags:
+        of.write(''.join(('setfattr -n user.mmfs.tags -v ', fnq(tags), ' -- ', fnq(filename), '\n')))
+      else:  # This shouldn't happen, tags is always nonempty here.
+        of.write(''.join(('setfattr -x user.mmfs.tags -- ', fnq(filename), '\n')))
     elif use_format == 'mclist':
       mtime = row[3]
       size = row[4]
