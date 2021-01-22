@@ -278,8 +278,19 @@ you change your media filesystems before loading rmtimeup.ko, then
 the incremental rescan in rmtimescan may not find some of your changed
 extended attributes.
 
-The index in the tags.sqlite database contains all extended attributes, but
-only user.mmfs.tags is searchable so far.
+Extended attribute storage in the index
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The index in the tags.sqlite database contains all extended attributes
+starting with `user.', but only user.mmfs.tags is searchable by rmtimequery.
+
+Here is an example of extended attributes actually stored for a real filesystem:
+
+  $ ./sqlite3-3.6.7.bin /media/data/tags.sqlite "SELECT DISTINCT xattr FROM fileattrs INDEXED BY fileattrs_xattr ORDER BY xattr" | perl -pe 's@^@user.@'
+  user.com.dropbox.attributes
+  user.com.dropbox.attrs
+  user.mmfs.tags
+  user.xdg.origin.url
+  user.xdg.referrer.url
 
 Copyright
 ~~~~~~~~~
