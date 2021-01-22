@@ -239,7 +239,7 @@ sub parse_dump($$) {
     } elsif ($line =~ m@^(?:setfattr[ \t]+-x|xattr[ \t]+-d)[ \t]+\Q$key0\E[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
       my $filename = $sharg_decode->($1);
       $process_func->($filename, "", ".");
-    } elsif ($line =~ m@^(?:setfattr[ \t]+-n|xattr[ \t]+-w)[ \t]+\Q$key0\E[ \t]+-v[ \t]+($sharg_re)[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
+    } elsif ($line =~ m@^(?:setfattr[ \t]+-n|xattr[ \t]+-w)[ \t]+\Q$key0\E[ \t]+(?:-v[ \t]+)?($sharg_re)[ \t]+(?:--[ \t]+)?($sharg_re)[ \t]*\n@o) {
       my($tags, $filename) = ($sharg_decode->($1), $sharg_decode->($2));
       $process_func->($filename, $tags, ".");
     } elsif ($line =~ m@^format=(?:[^ ]+)(?= )(.*?) f=(.*)\n@) {  # mediafileinfo form.
@@ -1011,7 +1011,7 @@ sub get_format_func($;$) {
   } : ($format eq "xattr") ? sub {
     my($tags, $filename) = @_;
     length($tags) ?
-        "xattr -w $key0 -v " . fnq($tags) . " " . fnq($filename) . "\n" :
+        "xattr -w $key0 " . fnq($tags) . " " . fnq($filename) . "\n" :
         "xattr -d $key0 " . fnq($filename) . "\n"
   } : ($format eq "colon") ? sub {
     my($tags, $filename) = @_;
