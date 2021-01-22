@@ -28,7 +28,8 @@ if test \! -f "$TMPDIR/amalgamation.zip" || test "$1" == --download; then
 fi
 
 if test \! -f "$TMPDIR/pysqlite.tar.gz" || test "$1" == --download; then
-  if wget -O "$TMPDIR/pysqlite.tar.gz" http://oss.itsystementwicklung.de/download/pysqlite/2.5/2.5.1/pysqlite-2.5.1.tar.gz; then
+  # Old URL: http://oss.itsystementwicklung.de/download/pysqlite/2.5/2.5.1/pysqlite-2.5.1.tar.gz
+  if wget -O "$TMPDIR/pysqlite.tar.gz" http://github.com/pts/ppfiletagger/releases/download/python2.4src/pysqlite-2.5.1.tar.gz; then
     :
   else
     rm -f "$TMPDIR/pysqlite.tar.gz"
