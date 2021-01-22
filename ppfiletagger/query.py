@@ -211,7 +211,7 @@ class GlobalInfo(base.GlobalInfo):
         raise matcher.BadQuery(
             'query may match files without tags (no database of those)')
       do_assume_match = matcher_obj.do_assume_match
-      wordlistcs = map(base.QueryToWordData, matcher_obj.ftqclauses)
+      wordlistcs = map(base.WordlistToWordlistc, matcher_obj.ftqclauses)
       has_negative = bool([1 for ftqclause in matcher_obj.ftqclauses if '-' in ftqclause])
       is_fts3_enhanced = None
       if not (has_negative or len(wordlistcs) > 1):

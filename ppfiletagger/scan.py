@@ -82,6 +82,8 @@ class RootInfo(base.RootInfo):
     """
     keys = None
     do_close_cursor = False
+    conv1_func = base.ValueToWordlist
+    conv2_func = base.WordlistToWordlistc
     for adict in dicts:
       if keys is None:
         keys = sorted(adict)
@@ -116,7 +118,7 @@ class RootInfo(base.RootInfo):
             (sorted(adict), keys))
 
       if adict['xattr'] in self.FILEWORDS_XATTRS:
-        worddata = base.ValueToWordData(adict['value'])
+        worddata = conv2_func(conv1_func(adict['value']))
         adict = dict(adict)  # Shallow copy. Imp: speed up.
       else:
         worddata = None
