@@ -6,6 +6,12 @@
 # The resulting .so files will be dynamically linked against glibc 2.7
 # (libc.so.6 and libpthread.so.0) and will work with Python 2.4.
 #
+# About setting up the qq command used by this build:
+#
+#   $ git clone https://github.com/pts/pts-chroot-env-qq
+#   $ ln -s pts_chroot_env_qq.sh pts-chroot-env-qq/qq
+#   $ export PATH="$PWD/pts-chroot-env-qq:$PATH"
+#
 
 set -ex
 
