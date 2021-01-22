@@ -47,7 +47,7 @@ class GlobalInfo(base.GlobalInfo):
     try:
       rows = tuple(db.execute(
           "SELECT 1 FROM filewords WHERE worddata MATCH 'NOT' AND "
-          'rowid=0 and rowid<rowid'))
+          'rowid=0 AND rowid<rowid'))
     except sqlite.OperationalError, e:
       if str(e).startswith('malformed MATCH expression:'):
         return True
