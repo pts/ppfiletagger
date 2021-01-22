@@ -39,49 +39,39 @@ def EntryOf(filename):
     return filename
 
 
-WORDDATA_NONWORDCHAR_RE = re.compile(r'[^a-z0-9:_ ]')
-WORDDATA_SPLIT_WORD_RE = re.compile(r'[^\s?!.,;\[\](){}<>"\']+')
-PTAG_TO_SQLITEWORD_RE = re.compile(r'[6789:_]')  # Duplicates matcher.py.
-PTAG_TO_SQLITEWORD_DICT = {  # Duplicates matcher.py.
-  '6': '66',
-  '7': '65',
-  '8': '64',
-  '9': '63',
-  ':': '7',
-  '_': '8',
-}
+NONWORDBYTES_RE = re.compile(r'[^\x80-\xff\w:]+')
+WORDLISTC_RE = re.compile(r'[A-Z_:789]')
+WORDLISTC_DICT = {':': '7', '_': '8', '7': '97', '8': '98', '9': '99'}
+WORDLISTC_DICT.update(  # Make matches ASCII case sensitive by prepending 9.
+    (c, '9' + c.lower()) for c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')
 
 
-def ValueToWordListc(value):
-  """Return a list of normalized words concatenated by space."""
+def ValueToWordlist(value):
+  """Returns fileattrs.value text (UTF-8 or 8-bit ASCII-based) converted to a
+  wordlist string (words separated by space)."""
   if not isinstance(value, str): raise TypeError
-  return re.sub(WORDDATA_NONWORDCHAR_RE, '_', ' '.join(
-      match.group(0).lower()
-      for match in WORDDATA_SPLIT_WORD_RE.finditer(value)))
+  return NONWORDBYTES_RE.sub(' ', value).strip(' ')
 
 
 # TODO: Move this to a test.
-assert 'i said: hello wonderful_world 0123456789' == ValueToWordListc('  I said:\tHello,  Wonderful_World! 0123456789\r\n')
+#assert 'i said: hello wonderful_world 0123456789' ==
+assert ('I said:: ::Hello Wonderful__World 01234 56 789 v:foo hi:Food t\xc5\xb0r' ==
+        ValueToWordlist('  I said::\t::Hello,  Wonderful__World! 01234/56--789 v:foo -hi:Food t\xc5\xb0r\r\n'))
 
 
-def ValueToWordData(value):
-  """Return fileattrs.value converted to filewords.worddata."""
+def WordlistToWordlistc(value):
+  """Returns wordlist converted to filewords.worddata."""
   if not isinstance(value, str): raise TypeError
-  return PTAG_TO_SQLITEWORD_RE.sub(
-      (lambda match: PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
-      ValueToWordListc(value))
+  return WORDLISTC_RE.sub(
+      (lambda match: WORDLISTC_DICT[match.group(0)]),
+      value)
 
 
 # TODO: Move this to a test.
-assert 'i said7 hello wonderful8world 01234566656463' == ValueToWordData('I said: Hello,  Wonderful_World! 0123456789')
-
-
-def QueryToWordData(query):
-  """Return SQLite fulltext query converted to filewords.worddata."""
-  if not isinstance(query, str): raise TypeError
-  return PTAG_TO_SQLITEWORD_RE.sub(
-      (lambda match: PTAG_TO_SQLITEWORD_DICT[match.group(0)]),
-      query)
+assert ('  9i said77\t779hello,  9wonderful889world! 01234/56--979899 v7foo -hi79food t\xc5\xb0r\r\n' ==
+        WordlistToWordlistc('  I said::\t::Hello,  Wonderful__World! 01234/56--789 v:foo -hi:Food t\xc5\xb0r\r\n'))
+assert ('meta 20199 night8sky v7meta -nature v7t\xc5\xb0r' ==
+        WordlistToWordlistc('meta 2019 night_sky v:meta -nature v:t\xc5\xb0r'))
 
 
 class RootInfo(object):
@@ -292,7 +282,7 @@ class GlobalInfo(object):
     try:
       # TODO: remember added and last-modified timestamps
       # List of files with user.* extended attributes.
-      # We could normalize this table to link to inodeattrs (ino, attr, value). 
+      # We could normalize this table to link to inodeattrs (ino, attr, value).
       db.execute('CREATE TABLE fileattrs (ino INTEGER NOT NULL, '
                  'dir TEXT NOT NULL, entry TEXT NOT NULL, '
                  'nlink INTEGER NOT NULL, ctime INTEGER NOT NULL, '
@@ -307,7 +297,7 @@ class GlobalInfo(object):
       db.execute('CREATE INDEX fileattrs_ino ON fileattrs (ino)')
 
       # filewords.rowid == fileattrs.xattrs_rowid. filewords.worddata contains
-      # RootInfo.ValueToWordData(fileattrs.value) for the corresponding row. 
+      # RootInfo.ValueToWordData(fileattrs.value) for the corresponding row.
       db.execute('CREATE VIRTUAL TABLE filewords '
                  'USING FTS3(worddata TEXT NOT NULL)')
 

@@ -308,8 +308,6 @@ The old (2009), obsolete, future plans of ppfiletagger:
 TODO
 ~~~~
 # rmtimequery:
-# TODO: make search case sensitive, for compatibility with
-#       ppfiletagger_shell_functions.sh
 # TODO: add only tags (no other extended attributes) to the database
 # TODO: implement --format=name, --format=tuple, --format=mclist in
 #       ppfiletagger_shell_functions.sh
