@@ -305,16 +305,49 @@ The old (2009), obsolete, future plans of ppfiletagger:
 
 * Add a web application for tagging files and searching by tag.
 
+Speed
+~~~~~
+`rmtimequery' should take less than 1 second in most use cases, and a few
+seconds for complicated, long queries (e.g. `* -ext:rare000').
+
+The speed of `rmtimequery --slow' depends on the medium (HDD or SSD),
+filesystem, SQLite version and CPU (for interpreting Python code). It may
+take a few minutes or a few hours. Example speed test:
+
+* Lenovo T400 laptop, ext4 fileststem on an SSD.
+* Python 2.7, Ubuntu 14.04, SQLite 3.8.2.
+* 679960 files, 56508 files with tags, 13099 directories on filesystem.
+* 158694 -- why are there so many insertions? Because of hard links?
+* Measuring the speed of first `rmtimescan --slow' on an empty tags.sqlite.
+* Time results: real 0m39.079s, user 0m24.802s, sys 0m9.604s.
+* Commands:
+    $ time ./rmtimescan --slow
+    ...
+    [1611314087.168284] INFO scan done, dirscan_count=13099 dirskip_count=0 update_count=0 insert_count=158694 delete_count=0
+    real    0m39.079s
+    user    0m24.802s
+    sys     0m9.604s
+    $ find /media/data -type f | wc -l
+    679960
+    $ find /media/data -type d | wc -l
+    13099
+    $ ./sqlite3-3.6.7.bin /media/data/tags.sqlite "SELECT COUNT(*) FROM filewords"
+    56508
+    $ ./sqlite3-3.6.7.bin /media/data/tags.sqlite "SELECT COUNT(*) FROM fileattrs"
+    100588
+
 TODO
 ~~~~
 # rmtimequery:
 # TODO: add only tags (no other extended attributes) to the database
+# TODO: add all `_mmfs find' flags to rmtimequery.
 # TODO: implement --format=name, --format=tuple, --format=mclist in
 #       ppfiletagger_shell_functions.sh
 # TODO: ppfiletagger_shell_functions.sh fnq should quote empty string
 # TODO: ppfiletagger_shell_functions.sh shouldn't follow symlinks to directories
 # TODO: add Midnight Commander integration for search
 # rmtimescan:
+# TODO: add scanning of specified directories (with tags.sqlite) only
 # TODO: doc: write about what happens if we remount elsewhere
 # TODO: doc: write about what happens if we move the hard drive
 # TODO: Test by using a fake filesystem.
