@@ -440,7 +440,7 @@ def main(argv):
         of.write(''.join(('setfattr -x user.mmfs.tags -- ', fnq(filename), '\n')))
     elif use_format == 'xattr':
       if tags:
-        of.write(''.join(('xattr -w user.mmfs.tags -v ', fnq(tags), ' ', fnq(filename), '\n')))
+        of.write(''.join(('xattr -w user.mmfs.tags ', fnq(tags), ' ', fnq(filename), '\n')))
       else:  # This shouldn't happen, tags is always nonempty here.
         of.write(''.join(('xattr -d user.mmfs.tags ', fnq(filename), '\n')))
     elif use_format == 'getfattr':
