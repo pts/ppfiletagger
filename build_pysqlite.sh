@@ -37,6 +37,8 @@ if test \! -f "$TMPDIR/pysqlite.tar.gz" || test "$1" == --download; then
   fi
 fi
 
+test "$1" = --no-build && exit
+
 rm -rf "$TMPDIR/pysqlite.extract" "$TMPDIR/pysqlite"
 mkdir -p "$TMPDIR/pysqlite.extract"
 (cd "$TMPDIR/pysqlite.extract"; tar xzvf ../pysqlite.tar.gz)
