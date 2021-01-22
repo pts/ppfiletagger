@@ -342,17 +342,48 @@ def xattr_detect():
   try:
     import xattr
     # pyxattr <0.2.2 are buggy.
-    if getattr(xattr, '__version__', '') >= '0.2.2':
-      if (not (implspec and implspec != 'xattr_xattr') and
-          is_linux and getattr(xattr, '_xattr', None) and
-          getattr(xattr._xattr, 'getxattr', None)):
-        # This works with python-xattr, but not with python-pyxattr.
-        return xattr_impl_xattr_xattr
-      elif not (implspec and implspec != 'xattr'):
-        # This works with python-xattr and python-pyxattr.
-        return xattr_impl_xattr
+    if getattr(xattr, '__version__', '') < '0.2.2':
+      xattr = None
   except ImportError:
-    pass
+    xattr = None
+  if xattr is None and __import__('sys').platform.startswith('linux'):
+    v1, v2 = __import__('sys').version_info[:2]
+    a = __import__('os').uname()[4]  # Kernel architecture.
+    if a in ('x86', '386', '486', '586', '686', 'ia32', 'x86_64', 'amd64', 'em64t'):
+      # This is not accurata e.g. with qemu-user-arm.
+      a = ('i386', 'amd64')[__import__('struct').calcsize('P') == 8]  # Pointer size.
+    else:
+      a = a.replace('-', '_')
+    import os.path
+    d = __file__
+    for _ in __name__.split('.'):
+      d = os.path.dirname(d)
+    d = os.path.join(d, 'ppfiletagger', 'py%d%d_linux_%s' % (v1, v2, a))
+    if os.path.isfile(os.path.join(d, 'xattr.so')):
+      __import__('sys').path[:0] = (d,)
+      try:
+        try:
+          # TODO(pts): Do it as a non-global import.
+          import xattr
+          # pyxattr <0.2.2 are buggy.
+          if getattr(xattr, '__version__', '') < '0.2.2':
+            xattr = None
+          #a = ''  # Always remove from path.
+        except ImportError:
+          xattr = None
+      finally:
+        if a and d in __import__('sys').path:
+          __import__('sys').path.remove(d)
+    del v1, v2, a, d
+  if xattr:
+    if (not (implspec and implspec != 'xattr_xattr') and
+        is_linux and getattr(xattr, '_xattr', None) and
+        getattr(xattr._xattr, 'getxattr', None)):
+      # This works with python-xattr, but not with python-pyxattr.
+      return xattr_impl_xattr_xattr
+    elif not (implspec and implspec != 'xattr'):
+      # This works with python-xattr and python-pyxattr.
+      return xattr_impl_xattr
 
   raise NotImplementedError(
       'xattr implementation not found or too old. Please install xattr (python-xattr) or ctypes.')

@@ -14,6 +14,9 @@ incremental online index update is alpha, unmaintained, legacy, abandonware.
 
 System requirements
 ~~~~~~~~~~~~~~~~~~~
+If you are new to ppfiletagger, don't worry about the requirements, but jump
+to the next section (``How to use ppfiletagger'').
+
 The basic functionality of ppfiletagger (tagging and slow search) needs:
 
 * A Linux system running kernel 2.4 or later (known to work with 2.4.32 --
@@ -34,48 +37,61 @@ Fast search (building the full index (rmtimescan) and doing fast searches
   5.9.12.). It may also work on macOS: Mac OS X 10.5 or later, but it is
   not tested.
 * Python 2.4, 2.5, 2.6 or 2.7. Python 3.x won't work.
-  * Most modern default installations of Python on Linux work. That's
-    because it's Python 2.5, 2.6 or 2.7, it contains the ctypes module
-    (for reading extended attributes), and it contains the sqlite3 module
-    (for writing and querying SQLite database files).
-  * For reading extended attributes, any of these:
-    * ctypes on Linux. Python 2.5, 2.6 and 2.7 have the ctypes module by
-      default, it can also be installed for Python 2.4.
-    * dl (`import dl') on Linux i386. Python 2.4, 2.5, 2.6 and 2.7 have
-      the dl module by default on Linux i386.
-    * xattr (https://pypi.org/project/xattr/ , sudo apt-get install
-      python-xattr) >= 0.2.2. Tested with 0.6.4, 0.9.1.
-      This should be the preferred solution for Python 2.4 if ctypes and
-      dl above don't work. It also works with Python 2.5, 2.6 and 2.7.
-      When installing with pip on Linux, libattr1-dev may be needed first
-      (sudo apt-get install libattr1-dev). libattr1 version 2.4.32 on
-      Debian Etch is known to work, later versions will also work.
-      xattr is preferred to pyxattr, because the former has fewer Debian
-      package dependencies.
-    * pyxattr (https://pypi.org/project/pyxattr/ , sudo apt-get install
-      python-pyxattr) >= 0.2.2. Tested with 0.2.2, 0.4.0, 0.5.1, 0.6.4,
-      0.9.1. This should be the preferred solution for Python 2.4 if ctypes,
-      dl and xattr above don't work. It also works with Python 2.5, 2.6 and
-      2.7. When installing with pip on Linux, libattr1-dev may be needed
-      first (sudo apt-get install libattr1-dev). libattr1 version 2.4.32 on
-      Debian Etch is known to work, later versions will also work.
-    * pyxattr 0.4.0 for Linux i386, linked against python 2.4.4, glibc 2.3.6
-      and static libattr1 2.4.32, is bundled as ppfiletagger/good/xattr.so .
-  * For writing and querying SQLite database files, any of these:
-    * sqlite3. Python 2.5, 2.6 and 2.7 have the sqlite3 module by default.
-    * pysqlite (https://pypi.org/project/pysqlite/ , sudo apt-get install
-      python-pysqlite2).  Tested with 2.5.1.
-      This should be the strongly preferred solution for Python 2.4,
-      but it also works with Python 2.5, 2.6 and 2.7.
-      When installing with pip on Linux, libsqlite3-dev may be needed first
-      (sudo apt-get install libseqlite3-dev), libsqlite3 version 3.6.7 and
-      above should work.
-      Please note that https://pypi.org/project/pysqlite3/ is a different
-      project, with a different API, don't install that.
-    * pysqlite 2.5.1 for Linux i386, linked against python 2.4.4, glibc 2.3.6
-      and static stripped-down libsqlite3 version 3.6.7 is bundled as
-      ppfiletagger/good/pysqlite2/_sqlite.so .
+  * To run ppfiletagger on a modern Linux system, just run it.
+    That's because the system will typically have Python 2.7. Python 2.5, 2.6
+    and 2.7 contain the ctypes module (for reading extended attributes),
+    and they contain the sqlite3 module (for writing and querying SQLite
+    database files).
+  * To run ppfiletagger on an old Linux i386 or amd64 system with Python 2.4,
+    it is recommended to use the precompiled Python package dependencies
+    (pyxattr and pysqlite). Download
+    https://github.com/pts/ppfiletagger/releases/download/python2.4bin/ppfiletagger_py24_linux_packages.tar.gz
+    and extract it to the directory containing the file rmtimescan.
+  * On any other system, see below for Python package dependencies.
+
 * The same filesystem requirements as of the basic functionality.
+
+Python package dependencies of fast search (relevant only for non-Linux
+systems and also relevant for Python 2.4 on other than Linux i386 and Linux
+amd64):
+
+* For reading extended attributes, any of these:
+  * ctypes on Linux. Python 2.5, 2.6 and 2.7 have the ctypes module by
+    default, it can also be installed for Python 2.4.
+  * dl (`import dl') on Linux i386. Python 2.4, 2.5, 2.6 and 2.7 have
+    the dl module by default on Linux i386.
+  * xattr (https://pypi.org/project/xattr/ , sudo apt-get install
+    python-xattr) >= 0.2.2. Tested with 0.6.4, 0.9.1.
+    This should be the preferred solution for Python 2.4 if ctypes and
+    dl above don't work. It also works with Python 2.5, 2.6 and 2.7.
+    When installing with pip on Linux, libattr1-dev may be needed first
+    (sudo apt-get install libattr1-dev). libattr1 version 2.4.32 on
+    Debian Etch is known to work, later versions will also work.
+    xattr is preferred to pyxattr, because the former has fewer Debian
+    package dependencies.
+  * pyxattr (https://pypi.org/project/pyxattr/ , sudo apt-get install
+    python-pyxattr) >= 0.2.2. Tested with 0.2.2, 0.4.0, 0.5.1, 0.6.4,
+    0.9.1. This should be the preferred solution for Python 2.4 if ctypes,
+    dl and xattr above don't work. It also works with Python 2.5, 2.6 and
+    2.7. When installing with pip on Linux, libattr1-dev may be needed
+    first (sudo apt-get install libattr1-dev). libattr1 version 2.4.32 on
+    Debian Etch is known to work, later versions will also work.
+  * pyxattr 0.4.0 for Linux i386, linked against python 2.4.4, glibc 2.3.6
+    and static libattr1 2.4.32, is bundled as ppfiletagger/good/xattr.so .
+* For writing and querying SQLite database files, any of these:
+  * sqlite3. Python 2.5, 2.6 and 2.7 have the sqlite3 module by default.
+  * pysqlite (https://pypi.org/project/pysqlite/ , sudo apt-get install
+    python-pysqlite2).  Tested with 2.5.1.
+    This should be the strongly preferred solution for Python 2.4,
+    but it also works with Python 2.5, 2.6 and 2.7.
+    When installing with pip on Linux, libsqlite3-dev may be needed first
+    (sudo apt-get install libseqlite3-dev), libsqlite3 version 3.6.7 and
+    above should work.
+    Please note that https://pypi.org/project/pysqlite3/ is a different
+    project, with a different API, don't install that.
+  * pysqlite 2.5.1 for Linux i386, linked against python 2.4.4, glibc 2.3.6
+    and static stripped-down libsqlite3 version 3.6.7 is bundled as
+    ppfiletagger/good/pysqlite2/_sqlite.so .
 
 Incremental online index update needs:
 
@@ -98,26 +114,70 @@ Optional, for debugging only:
   links against glibc-2.3.6. See more sqlite3 executables for Linux and
   macOS in https://github.com/pts/pts-sqlite3-tool-build/releases .
 
-How to install and use
-~~~~~~~~~~~~~~~~~~~~~~
+How to use ppfiletagger
+~~~~~~~~~~~~~~~~~~~~~~~
 Tagging and slow search
 """""""""""""""""""""""
-Mount all filesystems on which you want to tag files, create extended
-attributes, and build the index for. Let's call these ``media filesystems''.
-Make sure you allow user.* extended attributes (`mount -o user_xattr', e.g.
-`sudo mount -o remount,user_xattr /').
+Open a terminal window, decide about which files to add tags to (in the
+example it will be files in /media/big/my/album etc.). If unsure, copy some
+.jpgs file from your ~/Downloads or ~/Pictures directory to /tmp , and add
+some dummy tags there.
 
-Add metadata to your files' extended attributes. For example:
+Start adding tags (and other metadata) with the setfattr command (without
+typing the leading `$'):
 
-  $ setfattr -n user.xattr1 -v value1 /media/big/my/album/photo01.jpg
   $ setfattr -n user.mmfs.tags -v '2009 nature Europe' /media/big/my/a/*.jpg
   $ setfattr -n user.mmfs.tags -v 'calendar 2009' /media/big2/calendar09.txt
+
+The actual tags are within the single quotes, e.g. in the example above the
+tags are 2009, nature, Europe and calendar.
+
+If setfattr fails with ``command not found'':
+
+* On Linux, install the relevant package, e.g. with
+
+    $ sudo apt-get install attr
+
+* On macOS, use xattr instead of setfattr:
+
+    $ xattr -w user.mmfs.tags '2009 nature Europe' /media/big/my/a/*.jpg
+    $ xattr -w user.mmfs.tags 'calendar 2009' /media/big2/calendar09.txt
+
+If setfattr (or getfattr) fails with ``Operation not supported'' above on
+Linux, then:
+
+* Remount the corresponding filesystem with the user_xattr option:
+
+    $ df -P /media/big/my/album | awk '{x=$6}END{print x}' |
+      xargs -d '\n' sudo mount -o remount,user_xattr --
+
+* If the remount fails, then your filesystem probably doesn't support
+  extended attributes (and thus ppfiletagger won't work). Try another
+  filesystem (e.g. in /tmp), or look at the ``System requirements'' section
+  for more information.
+
+* Try the setfattr or getfattr command again.
+
+Add non-tag metadata to your files' extended attributes. For example:
+
+  $ setfattr -n user.xattr1 -v value1 /media/big/my/album/photo01.jpg
+
+Use getfattr to dump all extended attributes recursively:
+
+  $ getfattr -dR /media/big/my/album
 
 Please note that the extended attribute `user.mmfs.tags' has special
 significance: it is the whitespace-separated list of tags (keywords)
 associated to the file.  You can use the characters a-zA-Z0-9_: in tag
-names.  Tag names are case preserving, but tag search is case insensitive.
+names. Tag names are case preserving, tag search is case sensitive.
 See more information about tag syntax later.
+
+Download https://github.com/pts/ppfiletagger/archive/master.zip , extract
+it, and cd into the ppfiletagger-master directory:
+
+  $ wget -nv -O ppfiletagger-master.zip https://github.com/pts/ppfiletagger/archive/master.zip
+  $ tar xzf ppfiletagger-master.zip
+  $ cd ppfiletagger-master
 
 Alternatively, use ppfiletagger_shell_functions.sh to add and remove tags:
 
