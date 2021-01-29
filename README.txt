@@ -195,6 +195,11 @@ Alternatively, use ppfiletagger_shell_functions.sh to add and remove tags:
   $ _mmfs tag '2009 -2010 Europe' /media/big/my/a/*.jpg
   $ _mmfs tag 'calendar 2009' /media/big2/calendar09.txt
 
+The configuration file ~/.ppfiletagger_tags contains a whitelist of tags
+(one in each line) you are allowed to use for tagging. (The `_mmfs tag'
+command reports an error if you attempt to add a tag missing from the
+whitelist to a file.) This is to prevent typos and synonyms in added tags.
+
 Add some tags for all files you want to search for. Specify them using
 ppfiletagger_shell_functions.sh or `setfattr -n user.mmfs.tags -v ...', as
 outlined above. You will be able to add more tags or change tags later.
