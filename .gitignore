@@ -2,3 +2,4 @@ DEADJOE
 core
 *.pyc
 *~
+/ppfiletagger_py24_linux_packages.tar.gz
