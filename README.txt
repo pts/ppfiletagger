@@ -477,11 +477,11 @@ TODO
 ~~~~
 # rmtimequery:
 # TODO: add only tags (no other extended attributes) to the database
-# TODO: add all `_mmfs find' flags to rmtimequery.
 # TODO: implement --format=name, --format=tuple, --format=mclist in
 #       ppfiletagger_shell_functions.sh
 # TODO: ppfiletagger_shell_functions.sh fnq should quote empty string
 # TODO: ppfiletagger_shell_functions.sh shouldn't follow symlinks to directories
+# TODO: ppfiletagger_shell_functions.sh tag ---meta don't recognize flag
 # TODO: add Midnight Commander integration for search
 # rmtimescan:
 # TODO: add scanning of specified directories (with tags.sqlite) only
