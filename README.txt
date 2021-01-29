@@ -1,16 +1,18 @@
-ppfiletagger: file tagging and search by tag for Linux
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-ppfiletagger lets you tag your Linux files and then search for filenames
-matching the tags you specify. ppfiletagger is a collection of Linux
-software (including a Linux 2.6 kernel module, Perl script and Python
-scripts). Fast search works by generating an index (in SQLite database
-files) of the filesystem metadata (extended attributes and names of files),
-updating the index incrementally online (getting the filesystem notification
-events from the kernel module), and querying the index (including full-text
-search on tags).
-
-The basic functionality of ppfiletagger is mature; fast search is beta, and
-incremental online index update is alpha, unmaintained, legacy, abandonware.
+ppfiletagger: file tagging and search by tag for Unix
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ppfiletagger lets you tag your files and then search for filenames matching
+the tags you specify. Most functionality (tagging, search and full index
+building) is implemented as Perl and Python scripts which run Linux, macOS,
+FreeBSD, NetBSD and Solaris. A filesystem which supports extended attributes
+(xattr) is needed, because tags are stored there. Slow search (mature) works
+by doing a recursive file and directory scan, reading and comparing extended
+attributes. Full index building (mature) works by doing a recursive file and
+directory scan, and adding filenames and extended attributes to an SQLite
+database tables with full-text index (FTS3). Fast search (mature) works by
+querying the database using full-text search on tags. Incremental, online
+index update (alpha, unmaintained, legacy, abandonware, obsolete) needs a
+custom Linux 2.6 kernel module and an i386 kernel; it works by getting the
+filesystem notification events from the kernel module.
 
 System requirements
 ~~~~~~~~~~~~~~~~~~~
