@@ -186,7 +186,7 @@ it, and cd into the ppfiletagger-master directory:
   $ tar xzf ppfiletagger-master.zip
   $ cd ppfiletagger-master
 
-Alternatively, use ppfiletagger_shell_functions.sh to add and remove tags:
+Use ppfiletagger_shell_functions.sh (`_mmfs tag') to add and remove tags:
 
   $ eval "$(./ppfiletagger_shell_functions.sh --load)"
   $ (echo 2009; echo 2010; echo nature; echo Europe; echo calendar) >
@@ -200,8 +200,14 @@ The configuration file ~/.ppfiletagger_tags contains a whitelist of tags
 command reports an error if you attempt to add a tag missing from the
 whitelist to a file.) This is to prevent typos and synonyms in added tags.
 
+As seen above, specifying a tag after `_mmfs tag' adds it, and specifying a
+tag with the `-' prefix removes it. It's possible to overwrite tags (i.e.
+to remove all previous tags of the file first), and there are some other
+tagging modes, see details and syntax here:
+https://github.com/pts/locfileorg/blob/master/doc/tagging.md
+
 Add some tags for all files you want to search for. Specify them using
-ppfiletagger_shell_functions.sh or `setfattr -n user.mmfs.tags -v ...', as
+`_mmfs tag' or `setfattr -n user.mmfs.tags -v ...', as
 outlined above. You will be able to add more tags or change tags later.
 
 After adding tags, you can already find files matching a query:
@@ -218,7 +224,12 @@ After adding tags, you can already find files matching a query:
 Please note that the `_mmfs find' command is very slow (may take several
 minutes), because it does a recursive file and diretory scan, and it
 retrieves the user.mmfs.tags extended attribute for each file, typically
-needing 4 disk seeks per file. See below for fast search.
+needing 4 disk seeks per file. (It can be fast enough on SSD with less than
+10000 files to scan.) See below for fast search, as an alternative.
+
+`_mmfs find' and rmtimequery implement a sophisticated search query language
+with operators like `-', `|` and `ext:`, see details and syntax here:
+https://github.com/pts/locfileorg/blob/master/doc/search.md
 
 Midnight Commander (mc) integration
 """""""""""""""""""""""""""""""""""
