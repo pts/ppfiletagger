@@ -581,6 +581,8 @@ class Scanner(base.GlobalInfo):
         self.ScanRootDirs(do_incremental=True)
 
   def Run(self, do_forever, do_incremental):
+    if do_forever and not do_incremental:
+      raise ValueError  # self.RunMainLoop needs do_incremental.
     try:
       self.OpenEvent()
       self.OpenTagDBs(self.ParseMounts())
@@ -597,7 +599,44 @@ class Scanner(base.GlobalInfo):
       self.Close()
 
 
+def Usage(argv0):
+  return ('%s: updates scans all filesystems and updates search indexes\n'
+          'Usage: %s [<flag> ...]\n'
+          'Flags:\n'
+          '--forever: Run in an infinite loop in the foreground.\n'
+          '--slow: Scan the entire filesystems, not just changed files.\n'
+          '--help : Print this help.\n'
+          'It follows symlinks to files only.\n'
+          % (argv0, argv0)).rstrip()
+
+
 def main(argv):
-  Scanner().Run(
-      do_forever=(len(argv) > 1 and argv[1] == '--forever'),
-      do_incremental=not (len(argv) > 1 and argv[1] == '--slow'))
+  import sys
+  do_forever = False
+  do_incremental = True
+  i = 1
+  while i < len(argv):
+    arg = argv[i]
+    if arg == '--':
+      i += 1
+      break
+    elif arg == '--help':
+      print >>sys.stderr, Usage(argv[0])
+      return 0
+    elif not arg.startswith('--'):
+      break
+    elif arg == '--forever':
+      do_forever = True
+    elif arg == '--slow':
+      do_incremental = False
+    else:
+      print >>sys.stderr, 'fatal: unknown flag: %s' % arg
+      return 1
+    i += 1
+  if i != len(argv):
+    print >>sys.stderr, 'fatal: too many command-line arguments'
+    return 1
+  if do_forever and not do_incremental:
+    print >>sys.stderr, 'fatal: incompatible arguments: --slow and --forever'
+    return 1
+  Scanner().Run(do_forever=do_forever, do_incremental=do_incremental)
