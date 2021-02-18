@@ -309,14 +309,24 @@ Search for files by tag using `_mmfs query' (rmtimequery):
 
   $ _mmfs query 2009
   ...
-  ('/media/big/my/album/photo01.jpg', '2009 nature Europe')
-  ('/media/big/my/album/photo02.jpg', '2009 nature Europe')
-  ('/media/big2/calendar09.txt', 'calendar 2009')
+  /media/big/my/album/photo01.jpg
+  /media/big/my/album/photo02.jpg
+  /media/big2/calendar09.txt
   ...
-  $ _mmfs query '2009 naTUre'
+  $ _mmfs query 2009 /media/big2
   ...
-  ('/media/big/my/album/photo01.jpg', '2009 nature Europe')
-  ('/media/big/my/album/photo02.jpg', '2009 nature Europe')
+  /media/big2/calendar09.txt
+  ...
+  $ _mmfs query --format=colon 2009
+  ...
+  2009 nature Europe :: /media/big/my/album/photo01.jpg
+  2009 nature Europe :: /media/big/my/album/photo02.jpg
+  calendar 2009 :: /media/big2/calendar09.txt
+  ...
+  $ _mmfs query --format=colon '2009 naTUre'
+  ...
+  2009 nature Europe :: /media/big/my/album/photo01.jpg
+  2009 nature Europe :: /media/big/my/album/photo02.jpg
   ...
 
 You specify a cunjunction (``and'') of case insensitive tags in the
