@@ -169,13 +169,14 @@ class Clause(object):
       self.with_tags.clear()  # Optimization after setting self.must_be_tagged.
       self.without_tags.clear()  # Optimization.
       self.with_other_tags.clear()  # Optimization.
+    if self.with_any_exts is not None:
+      self.with_any_exts.difference_update(self.without_exts)
+      self.without_exts.clear()  # It's enough to check the positive.
 
     # Is it impossible that this Clause ever matches a file?
     self.is_impossible = bool(
         (self.must_be_tagged and self.must_be_untagged) or
-        (self.with_any_exts is not None and (
-             not self.with_any_exts or
-             self.with_any_exts.intersection(self.without_exts))) or
+        (self.with_any_exts is not None and not self.with_any_exts) or
         self.with_tags.intersection(self.without_tags))
     # Can the SQLite MATCH operator determine the result of the tag match,
     # provided that the file is tagged?
