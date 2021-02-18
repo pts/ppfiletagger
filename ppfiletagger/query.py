@@ -321,7 +321,7 @@ def Usage(argv0):
           '--format=colon : Print in the colon format: <tags> :: <filename>\n'
           '--format=getfattr : Print the same output as: getfattr -e text\n'
           '--format=mfi : Print in the mediafileinfo format.\n'
-          '--format=name | --firmat=filename | -n (default) : Print filename only.\n'
+          '--format=filename | --format=name | -n (default) : Print filename only.\n'
           '--format=tags : Print tags (including v:...) encountered (deduplicated).\n'
           '--format=mclist : Print Midnight Commander extfs file listing.\n'
           '--recursive=yes (default w/o --stdin) : Dump directories, recursively.\n'
