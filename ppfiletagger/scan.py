@@ -600,7 +600,7 @@ class Scanner(base.GlobalInfo):
 
 
 def Usage(argv0):
-  return ('%s: updates scans all filesystems and updates search indexes\n'
+  return ('%s: scans all filesystems and updates search indexes\n'
           'Usage: %s [<flag> ...]\n'
           'Flags:\n'
           '--forever: Run in an infinite loop in the foreground.\n'
