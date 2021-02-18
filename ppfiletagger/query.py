@@ -302,7 +302,10 @@ TAGSEP_RE = re.compile(r'[\s,]')
 
 
 def Usage(argv0):
-  # Command-line should be similar to _mmfs find.
+  # Command-line is the same as of _mmfs find, except for:
+  # * It supports -n as an alias for --format=filename.
+  # * If <filename> is not specified, it searches for all filesystems with an index.
+  # * It doesn't support --stdin-tagfile, because it always reads from the index.
   return ('%s: searches for matching files, prints list or dump to stdout\n'
           "Usage: %s [<flag> ...] ['<tagquery>'] [<filename> ...]\n"
           'Without a <filename>, indexes on all filesystems are searched.\n'
