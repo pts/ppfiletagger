@@ -399,10 +399,11 @@ Compatibility notes
 
 Copyright
 ~~~~~~~~~
-rmtimeup is written and copyright by Peter Szabo <pts@fazekas.hu> from January
-2009.
+ppfiletagger (including ppfiletagger_shell_functions.sh, rmtimescan,
+rmtimequery and rmtimeup.ko) is written and copyright by Peter Szabo
+(Péter Szabó) <pts@fazekas.hu> from January 2009.
 
-rmtimeup is free software under the GNU GPL v2.
+ppfiletagger is free software under the GNU GPL v2.
 
 Speed
 ~~~~~
