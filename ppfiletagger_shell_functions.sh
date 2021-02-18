@@ -1017,6 +1017,22 @@ sub gfaq($) {
   qq("$S")
 }
 
+my %REPR_STR = ("\t" => "\\t", "\n" => "\\n", "\r" => "\\r", "\\" => "\\\\", "\"" => "\\\"", "'" => "\\'");
+
+#** Escapes a string just like Python 2.7 repr.
+sub reprq($) {
+  my $s = $_[0];
+  my $has_sq = $s =~ y@'@@;
+  my $has_dq = $s =~ y@"@@;
+  if ($has_sq and !$has_dq) {
+    $s =~ s@([\x00-\x1F\x7F-\xFF\\\"])@ $REPR_STR{$1} or sprintf("\\x%02x", ord($1)) @ge;
+    qq("$s")
+  } else {
+    $s =~ s@([\x00-\x1F\x7F-\xFF\\\'])@ $REPR_STR{$1} or sprintf("\\x%02x", ord($1)) @ge;
+    qq('$s')
+  }
+}
+
 my %tagvs_encountered;
 sub get_format_func($;$) {
   my($format, $is_fatal) = @_;
@@ -1060,6 +1076,9 @@ sub get_format_func($;$) {
     my @st = stat($filename);
     @st ? "format=?-no-try mtime=$st[9] size=$st[7] tags=$tagsc f=$filename\n"
         : "format=?-no-try tags=$tagsc f=$filename\n"
+  } : ($format eq "tuple") ? sub {
+    my($tags, $filename) = (reprq($_[0]), reprq($_[1]));
+    "($filename, $tags)\n"
   } : $is_fatal ? die1("$0: fatal: unknown output format: $format\n") : undef
 }
 
@@ -1070,7 +1089,8 @@ my $format_usage =
 --format=getfattr : Print the same output as: getfattr -e text
 --format=mfi : Print in the mediafileinfo format.
 --format=filename | --format=name : Print filename only.
---format=tags : Print tags (including v:...) encountered (deduplicated).";
+--format=tags : Print tags (including v:...) encountered (deduplicated).
+--format=tuple : Print (filename, tags) Python tuple.";
 
 # --- find_matches : format_filename
 
