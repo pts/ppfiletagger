@@ -404,23 +404,6 @@ rmtimeup is written and copyright by Peter Szabo <pts@fazekas.hu> from January
 
 rmtimeup is free software under the GNU GPL v2.
 
-Future plans
-~~~~~~~~~~~~
-The future plans of ppfiletagger, in 2021:
-
-* Make the query language of rmtimequery and ppfiletagger_shell_functions.sh
-  the same, adding the missing features to both. Also document the query
-  language.
-
-* Add each other's --format=... values to rmtimequery and
-  ppfiletagger_shell_function.sh.
-
-The old (2009), obsolete, future plans of ppfiletagger:
-
-* Add communication with other filesystem indexing software such as Beagle.
-
-* Add a web application for tagging files and searching by tag.
-
 Speed
 ~~~~~
 Speed of `_mmfs find' reading from a `--format=mfi' tagfile on a slow
@@ -497,12 +480,8 @@ TODO
 ~~~~
 # rmtimequery:
 # TODO: add only tags (no other extended attributes) to the database
-# TODO: implement --format=name, --format=tuple, --format=mclist in
-#       ppfiletagger_shell_functions.sh
-# TODO: ppfiletagger_shell_functions.sh fnq should quote empty string
-# TODO: ppfiletagger_shell_functions.sh shouldn't follow symlinks to directories
-# TODO: ppfiletagger_shell_functions.sh tag ---meta don't recognize flag
 # TODO: add Midnight Commander integration for search
+# TODO: make it compatible with Python 3 (also keeping Python 2.4--2.7)
 # rmtimescan:
 # TODO: add scanning of specified directories (with tags.sqlite) only
 # TODO: doc: write about what happens if we remount elsewhere
@@ -518,7 +497,12 @@ TODO
 # TODO: Ignore or defer SIGINT (KeyboardInterrupt).
 # TODO: doc: what kind of mtime clock sync is necessary? what can go wrong?
 # TODO: use large transactions to speed up the update
-# rmtimeup.ko:
+# TODO: make it compatible with Python 3 (also keeping Python 2.4--2.7)
+# TODO: (obsolete) Add communication with other filesystem indexing software
+#       such as Beagle.
+# new tools:
+* TODO: (obsolete) Add a web application for tagging files and searching by tag.
+# rmtimeup.ko (all obsolete):
 # TODO: doc: write about system design, why is rescanning safe?
 # TODO: investigate and get rid of this dmesg on umount /mnt/mini:
 #       VFS: Busy inodes after unmount of loop0. Self-destruct in 5 seconds.  Have a nice day...
