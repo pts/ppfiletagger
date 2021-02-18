@@ -803,7 +803,7 @@ sub parse_tagquery($) {
     my(%needplus, %needminus, %needother);
     my $had_any = 0;
     while ($termlist=~/(\S+)/g) {
-      my $tagv = $1;
+      my $term = $1; my $tagv = $1;
       if ($tagv =~ s@^-@@) {
         $tagv = "*" if $tagv eq ":tag";
         $needminus{$tagv} = 1;
@@ -825,8 +825,8 @@ sub parse_tagquery($) {
         next if $tagv eq "*";
       }
       if ($tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@o) {
-        die1 "$0: fatal: unsupported special query term: $tagv\n" if exists $unsupported_special_terms{$tagv};
-        die1 "$0: fatal: invalid tagv syntax: $tagv\n";
+        die1 "$0: fatal: unsupported special ($tagv) in query term: $term\n" if exists $unsupported_special_terms{$tagv};
+        die1 "$0: fatal: invalid tagv ($tagv) in query term: $term\n";
       }
     }
     die1 "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !($had_any or %needplus or %needminus);
