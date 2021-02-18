@@ -1357,22 +1357,28 @@ if (@ARGV and $ARGV[0] eq "--sa") {
   eval <<'  ENDSA'; die $@ if $@;
   shift(@ARGV);
   local $_ = ""; while (read(STDIN, $_, 65536, length)) {}
-  die1 "$0: fatal: missing stdin-ARGV ($_)\n" if !m@\A(.*? : -)[ \n]@;
-  die1 "$0: fatal: bad stdin-ARGV ending\n" if !chomp();
-  $_ .= " " if substr($_, -1) ne " ";  # Appended by Midnight commander.
-  pos($_) = length($1);
-  # Unescape escaped @ARGV:
-  # * Bourne shell `set -x' escapes by '...' and ' -> '\'' .
-  # * Midnight Commander escapes by prepending backslashes and also prepending
-  #   ./ if the argument starts with -.
-  while (m@\G(?:\ \Z(?!\n)|\ \x27((?:[^\x27]+|\x27\\\x27\x27)*)\x27
-           (\\\x27(?=\ ))?|\ ((?:[^\x27"\$\\\ \n]+|\\[^\n])+)(?=\ ))@gcx) {
-    if (defined($1)) { push @ARGV, $1; $ARGV[-1] =~ s@\x27\\\x27\x27@\x27@g;
-      $ARGV[-1] .= $2 if defined($2) }
-    elsif (defined($3)) { push @ARGV, $3; $ARGV[-1] =~ s@\\(.)@$1@sg; }
+  if (m@\A(:\0\n)@) {
+    pos($_) = length($1);
+    push @ARGV, $1 while m@\G([^\0]+)\0\n@gc;
+  } else {
+    die1 "$0: fatal: missing stdin-ARGV ($_)\n" if !m@\A(.*? : -)[ \n]@;
+    die1 "$0: fatal: bad stdin-ARGV ending\n" if !chomp();
+    $_ .= " " if substr($_, -1) ne " ";  # Appended by Midnight commander.
+    pos($_) = length($1);
+    # Unescape escaped @ARGV:
+    # * Bourne shell `set -x' escapes by '...' and ' -> '\'' .
+    # * Midnight Commander escapes by prepending backslashes and also prepending
+    #   ./ if the argument starts with -.
+    while (m@\G(?:\ \Z(?!\n)|\ \x27((?:[^\x27]+|\x27\\\x27\x27)*)\x27
+             (\\\x27(?=\ ))?|\ ((?:[^\x27"\$\\\ \n]+|\\[^\n])+)(?=\ ))@gcx) {
+      if (defined($1)) { push @ARGV, $1; $ARGV[-1] =~ s@\x27\\\x27\x27@\x27@g;
+        $ARGV[-1] .= $2 if defined($2) }
+      elsif (defined($3)) { push @ARGV, $3; $ARGV[-1] =~ s@\\(.)@$1@sg; }
+    }
   }
   die1 "$0: fatal: bad stdin-ARGV\n" if pos($_) != length($_);
   if (open(my($fd9), "<&=9")) { open(STDIN, "<&9"); close($fd9) }
+  #for (@ARGV) { print "($_)\n" }
   ENDSA
 }
 if (@ARGV and $ARGV[0] eq "--mcmenu") {
@@ -1449,9 +1455,16 @@ case "\$(exec 2>&1; set -x; : "a b")" in  # Detect unlimited argv support.
   (exec 9>&0; (exec 2>&1; set -x; : - "\$\@") |
   (export _${topcmd}_PERLCODE; exec perl -e 'eval\$ENV{_${topcmd}_PERLCODE};die\$\@if\$\@' -- --sa))
 } ;;
-*\) ${topcmd}() {  # Fallback with limited argv, e.g. in dash.
+*\) case "\$(exec 2>&1; printf %s\\\\000\\\\ny "a  b" | '$^X' -pe 'y~\\0~x~')" in
+"a  bx
+y"*\) ${topcmd}() {  # Terminating long args with NUL NL.
+  (exec 9>&0; for A in : "\$@"; do printf %s\\\\000\\\\n "\$A"; done |
+  (export _${topcmd}_PERLCODE; exec perl -e 'eval\$ENV{_${topcmd}_PERLCODE};die\$\@if\$\@' -- --sa))
+} ;;
+*\) ${topcmd}() {  # Fallback with size-limited argv (E2BIG).
   (export _${topcmd}_PERLCODE; exec perl -e 'eval\$ENV{_${topcmd}_PERLCODE};die\$\@if\$\@' -- "\$\@")
 } ;;
+esac ;;
 esac\n$funcs);
   exit;
 }
