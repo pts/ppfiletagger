@@ -1003,7 +1003,7 @@ my $format_filename = sub { "$_[1]\n" };  # $filename.
 
 sub fnq($) {
   #return $_[0] if substr($_[0],0,1)ne"-";
-  return $_[0] if $_[0]!~m@[^-_/.0-9a-zA-Z]@;
+  return $_[0] if length($_[0]) and $_[0] !~ m@[^-_/.0-9a-zA-Z]@;
   my $S=$_[0];
   $S=~s@\x27@\x27\\\x27\x27@g;
   "\x27$S\x27"
