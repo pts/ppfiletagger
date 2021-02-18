@@ -17,7 +17,6 @@ $_ = "\n\n\n\n\n\n\n\n" . <<'END';
 #
 # TODO(pts): Add an option reject invalid tagvs to _cmd_grep etc.
 # TODO(pts): Add descript.ion support as a fallback for e.g. FAT32 and exFAT filesystems.
-# TODO(pts): Add file type detection (e.g. :video) for grep, find and query commands.
 #
 
 # Simple superset of UTF-8 words.
@@ -790,8 +789,14 @@ Usage: $0 <filename>\n" if @ARGV != 1;
 
 # --- tagquery
 
-# These are supported in rmtimequery, but not in here.
-my %unsupported_special_terms = qw(:vid 1 :video 1 :film 1 :movie 1 :pic 1 :picture 1 :img 1 :image 1);
+my @VIDEO_EXTS = qw(avi wmv mpg mpe mpeg mov rm webm ram flv mp4 ts iso vob fli asf asx divx qt flc ogm mkv img vid m2ts original rmvb mp2 mpa m4v tp m1v m2v m3v tvt 3gp dv flv8 flv9);
+my @IMAGE_EXTS = qw(png jpeg jpg jpe gif tif tiff pcx bmp xcf pnm pbm pgm ppm xwd xpm pam psd miff webp heif heifs heic heics avci avcs avif avifs mng apng ico jxr wdp hdp jp2 j2k jpf jpm jpg2 j2c jpc jpx mj2);
+my @AUDIO_EXTS = qw(wav au mp3 mp2 ogg m4a opus flac aac ac3 dts ape vorbis speex ra mid midi mov s3m it xt sid ralf aiff aifc);
+my %EXT_TERMS = (
+    ':vid' => \@VIDEO_EXTS, ':video' => \@VIDEO_EXTS, ':film' => \@VIDEO_EXTS, ':movie' => \@VIDEO_EXTS,
+    ':pic' => \@IMAGE_EXTS, ':picture' => \@IMAGE_EXTS, ':img' => \@IMAGE_EXTS, ':image' => \@IMAGE_EXTS, ':photo', => \@IMAGE_EXTS,
+    ':aud' => \@AUDIO_EXTS, ':audio' => \@AUDIO_EXTS, ':snd' => \@AUDIO_EXTS, ':sound' => \@AUDIO_EXTS,
+);
 
 #** <tagquery> language:
 #** * "foo bar | -baz" means ((foo AND bar) OR NOT baz).
@@ -802,7 +807,7 @@ my %unsupported_special_terms = qw(:vid 1 :video 1 :film 1 :movie 1 :pic 1 :pict
 #** * -*"             : anything without tags
 #** * See docs for more info.
 #** @param $_[0] $tagquery String containing a <tagquery>.
-#** @return \@orterms, a list of [$needplus, $needminus, $needother].
+#** @return \@orterms, a list of [$needplus, $needminus, $needother, $extplus, $extminus].
 sub parse_tagquery($) {
   my $tagquery = $_[0];
   my @orterms;
@@ -814,19 +819,40 @@ sub parse_tagquery($) {
   my($has_tagged, $has_none) = (0, 0);
   for my $termlist (@termlists) {
     pos($termlist) = 0;
-    my(%needplus, %needminus, %needother);
+    my(%needplus, %needminus, %needother, $extmode, %extplus, %extminus);
     my $had_any = 0;
+    my $update_exts = sub {
+      my($exth, $tagv, $term) = @_;
+      if (!ref($tagv)) {
+        die1 "$0: fatal: invalid ext: term syntax: $term\n" if
+            $tagv !~ m@\A(?:$tagchar_re|/)*\Z(?!\n)@o;
+        $tagv = [split(m@/+@, lc($tagv))];
+      }
+      if ($exth == \%extplus and $extmode) {
+        %extplus = map { (length($1) and exists($extplus{$1})) ? ($1 => 1) : () } @$tagv;  # Intersection.
+      } else {
+        $extmode = 1 if $exth == \%extplus;
+        for my $ext (@$tagv) { $exth->{$ext} = 1 if length($ext) }  # Union.
+      }
+    };
     while ($termlist=~/(\S+)/g) {
       my $term = $1; my $tagv = $1;
-      if ($tagv =~ s@^-@@) {
+      if ($tagv =~ s@^(-?)ext:@@) {
+        $update_exts->($1 ? \%extminus : \%extplus, $tagv, $term); next
+      } elsif ($tagv =~ s@^-@@) {
         $tagv = "*" if $tagv eq ":tag";
+        my $exts = $EXT_TERMS{$tagv};
+        if (defined($exts)) { $update_exts->(\%extminus, $exts, $term); next }
         $needminus{$tagv} = 1;
         next if $tagv eq "*";
       } elsif ($tagv =~ s@^[*]-@@) {
         $needother{$tagv} = 1;
         $needplus{"*"} = 1;
       } elsif ($tagv =~ m@^:@) {
-        if ($tagv eq ":none") {
+        my $exts = $EXT_TERMS{$tagv};
+        if (defined($exts)) {
+          $update_exts->(\%extplus, $exts, $term); next
+        } elsif ($tagv eq ":none") {
           $needminus{"*"} = 1; next
         } elsif ($tagv eq ":tagged" or $tagv eq ":tag") {
           $needplus{"*"} = 1; next
@@ -839,32 +865,38 @@ sub parse_tagquery($) {
         next if $tagv eq "*";
       }
       if ($tagv !~ m@\A(?:v:)?(?:$tagchar_re)+\Z(?!\n)@o) {
-        die1 "$0: fatal: unsupported special ($tagv) in query term: $term\n" if exists $unsupported_special_terms{$tagv};
         die1 "$0: fatal: invalid tagv ($tagv) in query term: $term\n";
       }
     }
-    die1 "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !($had_any or %needplus or %needminus);
+    die1 "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !($had_any or %needplus or %needminus or $extmode or %extminus);
     if (exists($needminus{"*"})) {
       next if %needplus;  # FYI %needplus implies %needother.
       %needminus = ("*" => 1);
     }
     next if grep { exists($needplus{$_}) } keys(%needminus);
     delete $needplus{"*"} if exists($needplus{"*"}) and scalar(keys(%needplus)) > 1 and !%needother;
-    $has_tagged = 1 if exists($needplus {"*"}) and scalar(keys(%needplus)) == 1 and !%needminus and !%needother;
-    $has_none   = 1 if exists($needminus{"*"});
-    $has_tagged = $has_none = 1 if !%needplus and !%needminus;
-    #print STDERR "info: query spec needplus=(@{[sort(keys(%needplus))]}) needminus=(@{[sort(keys(%needminus))]}) needother=(@{[sort(keys(%needother))]})\n";
-    push @orterms, [\%needplus, \%needminus, \%needother];
+    if (!%extplus and !%extminus) {
+      $has_tagged = 1 if exists($needplus {"*"}) and scalar(keys(%needplus)) == 1 and !%needminus and !%needother;
+      $has_none   = 1 if exists($needminus{"*"});
+      $has_tagged = $has_none = 1 if !%needplus and !%needminus;
+    }
+    for my $ext (keys(%extminus)) { delete($extplus{$ext}) }
+    next if $extmode and !%extplus;  # No possible extension.
+    $extmode = %extplus ? 1 : %extminus ? -1 : 0;
+    my $ext = %extplus ? \%extplus : \%extminus;
+    print STDERR "info: query spec needplus=(@{[sort(keys(%needplus))]}) needminus=(@{[sort(keys(%needminus))]}) needother=(@{[sort(keys(%needother))]}) extmode=$extmode ext=(@{[sort(keys(%$ext))]})\n";
+    push @orterms, [\%needplus, \%needminus, \%needother, $extmode, $ext];
   }
   @orterms = ([$has_none ? {} : {"*" => 1}, {}, {}]) if $has_tagged;
   \@orterms
 }
 
-sub match_tagquery($$) {
-  my($tags, $orterms) = @_;
+sub match_tagquery($$$) {
+  my($tags, $filename, $orterms) = @_;
   my $ok_p = 0;
+  my $fext;
   for my $orterm (@$orterms) {
-    my($needplus, $needminus, $needother) = @$orterm;
+    my($needplus, $needminus, $needother, $extmode, $ext) = @$orterm;
     my %np=%$needplus;
     #print "($tags)\n";
     my $tagc=0;
@@ -876,7 +908,21 @@ sub match_tagquery($$) {
       if ($needminus->{$tag} or $needminus->{"*"}) { %np = (1 => 1); last }
     }
     delete $np{"*"} if $tagc>0;
-    return 1 if !%np;  # Found match in current orterm.
+    if ($extmode) {
+      if (!%np) {
+        if (!defined($fext)) {
+          $fext = "";
+          my $i = rindex($filename, ".") + 1;
+          if ($i) {
+            pos($filename) = $i;
+            $fext = lc($1) if $filename =~ m@\G([^./]+)\Z(?!\n)@gc;
+          }
+        }
+        return 1 if ($extmode < 0) ^ exists($ext->{$fext});
+      }
+    } else {
+      return 1 if !%np;  # Found match in current orterm.
+    }
   }
   0  # No match.
 }
@@ -886,32 +932,34 @@ sub match_tagquery($$) {
 #** match_tagquery (slow Perl code).
 sub get_match_src($$) {
   my ($orterms, $is_fast) = @_;
-  return q{ $_ = "" if !defined($_); if (match_tagquery($_, $orterms)) { print "$fn0\\n"; ++$HC if m@[^\\s,]@; } } if !$is_fast;
+  return q{ $_ = "" if !defined($_); if (match_tagquery($_, $fn0, $orterms)) { print "$fn0\\n"; ++$HC if m@[^\\s,]@; } } if !$is_fast;  # Unoptimized (with match_tagquery), counting.
   return q{} if !@$orterms;  # No file matches.
-  return q{ print "$fn0\\n" } if @$orterms == 1 and !%{$orterms->[0][0]} and !%{$orterms->[0][1]} and !%{$orterms->[0][2]};  # Any file matches.
-  return q{ print "$fn0\\n" if  defined($_) and m@[^\\s,]@; } if @$orterms == 1 and exists($orterms->[0][0]{"*"}) and scalar(keys(%{$orterms->[0][0]})) == 1 and !%{$orterms->[0][1]} and !%{$orterms->[0][2]};  # Tagged   files match.
-  return q{ print "$fn0\\n" if !defined($_) or !m@[^\\s,]@; } if @$orterms == 1 and exists($orterms->[0][1]{"*"}) and scalar(keys(%{$orterms->[0][1]})) == 1 and !%{$orterms->[0][0]} and !%{$orterms->[0][2]};  # Untagged files match.
-  # Matching is slow if $tags ($_) and number of matched tags is long
-  # (because of sequential rescans). If there are more than $count_limit
-  # sequential scans, we fall back to match_tagquery, which is scans once
-  # (but slowly). Benchmarks on files with typical (few) tags and 1 term to
-  # match indicate that match_tagquery is ~3.307 times slower than fast
-  # regexp matches.
-  my($count, $count_limit) = (0, 5);
   my @orsrcs;
-  for my $orterm (@$orterms) {
-    my($needplus, $needminus, $needother) = @$orterm;
-    if (%$needother) { @orsrcs = (); last }
-    # Benchmarks indicate that it is a bit faster with \Q, and that using a
-    # non-literal regexp (e.g. with `|`) would make it much slower.
-    my @andsrcs = map({ $_ eq "*" ? "m([^,])" : "m(\\Q,$_,)" } sort(keys(%$needplus))),
-        map({ $_ eq "*" ? "!m([^,])" : "!m(\\Q,$_,)" } sort(keys(%$needminus)));
-    $count += @andsrcs;
-    if ($count > $count_limit) { @orsrcs = (); last }
-    push @orsrcs, join(" and ", @andsrcs);
+  if (!(grep { $_->[3] } @$orterms)) {  # All $extmode == 0 (no extensions specified).
+    return q{ print "$fn0\\n" } if @$orterms == 1 and !%{$orterms->[0][0]} and !%{$orterms->[0][1]} and !%{$orterms->[0][2]};  # Any file matches.
+    return q{ print "$fn0\\n" if  defined($_) and m@[^\\s,]@; } if @$orterms == 1 and exists($orterms->[0][0]{"*"}) and scalar(keys(%{$orterms->[0][0]})) == 1 and !%{$orterms->[0][1]} and !%{$orterms->[0][2]};  # Tagged   files match.
+    return q{ print "$fn0\\n" if !defined($_) or !m@[^\\s,]@; } if @$orterms == 1 and exists($orterms->[0][1]{"*"}) and scalar(keys(%{$orterms->[0][1]})) == 1 and !%{$orterms->[0][0]} and !%{$orterms->[0][2]};  # Untagged files match.
+    # Matching is slow if $tags ($_) and number of matched tags is long
+    # (because of sequential rescans). If there are more than $count_limit
+    # sequential scans, we fall back to match_tagquery, which is scans once
+    # (but slowly). Benchmarks on files with typical (few) tags and 1 term to
+    # match indicate that match_tagquery is ~3.307 times slower than fast
+    # regexp matches.
+    my($count, $count_limit) = (0, 5);
+    for my $orterm (@$orterms) {
+      my($needplus, $needminus, $needother) = @$orterm;
+      if (%$needother) { @orsrcs = (); last }
+      # Benchmarks indicate that it is a bit faster with \Q, and that using a
+      # non-literal regexp (e.g. with `|`) would make it much slower.
+      my @andsrcs = map({ $_ eq "*" ? "m([^,])" : "m(\\Q,$_,)" } sort(keys(%$needplus))),
+          map({ $_ eq "*" ? "!m([^,])" : "!m(\\Q,$_,)" } sort(keys(%$needminus)));
+      $count += @andsrcs;
+      if ($count > $count_limit) { @orsrcs = (); last }
+      push @orsrcs, join(" and ", @andsrcs);
+    }
   }
-  return q{ $_ = "" if !defined($_); print "$fn0\\n" if match_tagquery($_, $orterms) } if !@orsrcs;  # Unoptimized, with match_tagquery.
-  q{ $_ = "" if !defined($_); s@\s+@,@g; $_ = ",$_,"; print "$fn0\\n" if } . join(" or ", @orsrcs)
+  return q{ $_ = "" if !defined($_); print "$fn0\\n" if match_tagquery($_, $fn0, $orterms) } if !@orsrcs;  # Unoptimized (with match_tagquery), not counting.
+  q{ $_ = "" if !defined($_); s@\s+@,@g; $_ = ",$_,"; print "$fn0\\n" if } . join(" or ", @orsrcs)  # Optimized.
 }
 
 # --- print_find_stats
@@ -1034,6 +1082,8 @@ sub reprq($) {
 }
 
 my %tagvs_encountered;
+
+#** @returns $format_func taking ->($tags, $fn0).
 sub get_format_func($;$) {
   my($format, $is_fatal) = @_;
   (!defined($format) or $format eq "sh" or $format eq "setfattr") ? sub {
@@ -1104,7 +1154,7 @@ my $format_usage =
 
 # --- find_matches : format_filename
 
-#** @param $_[1] $match_func, takes ->($fn0, $tags), returns bool.
+#** @param $_[1] $match_func taking ->($tags, $fn0), returning bool.
 sub find_matches($$$$$) {
   my($format_func, $match_func, $printfn, $is_recursive, $is_stdin) = @_;
   if ($match_func == 1) {
@@ -1138,7 +1188,7 @@ sub find_matches($$$$$) {
     }
     $tags = "" if !defined($tags);
     ++$C;
-    if ($match_func->($fn0, $tags)) {
+    if ($match_func->($tags, $fn0)) {
       $tags =~ s@[\s,]+@ @g;  # E.g. get rid of newlines for --format=colon.
       $tags =~ s@\A +@@; $tags =~ s@ +\Z(?!\n)@@;
       ++$HC if length($tags);
@@ -1223,8 +1273,8 @@ It follows symlinks to files only.
     elsif ($arg eq "--sh" or $arg eq "--colon" or $arg eq "--mfi" or $arg eq "--mscan") { $format_func = get_format_func(substr($arg, 2), 1) }
     elsif ($arg =~ m@\A--format=(.*)@s) { $format_func = get_format_func($1, 1) }
     elsif ($arg eq "--print-empty=yes" or $arg eq "--tagquery=:any" or $arg eq "--any") { $match_func = 1 }
-    elsif ($arg eq "--print-empty=no" or $arg eq "--tagquery=:tagged" or $arg eq "--tagquery=*" or $arg eq "--tagged") { $match_func = sub { my $tags = $_[1]; $tags =~ m@[^\s,]@ } }
-    elsif ($arg eq "--tagquery=:none" or $arg eq "--tagquery=-*" or $arg eq "--untagged") { $match_func = sub { my $tags = $_[1]; $tags !~ m@[^\s,]@ } }
+    elsif ($arg eq "--print-empty=no" or $arg eq "--tagquery=:tagged" or $arg eq "--tagquery=*" or $arg eq "--tagged") { $match_func = sub { my $tags = $_[0]; $tags =~ m@[^\s,]@ } }
+    elsif ($arg eq "--tagquery=:none" or $arg eq "--tagquery=-*" or $arg eq "--untagged") { $match_func = sub { my $tags = $_[0]; $tags !~ m@[^\s,]@ } }
     elsif ($arg =~ m@\A--print-empty=@) { die1 "$0: fatal: unknown flag value: $arg\n" }
     elsif ($arg =~ m@\A--tagquery=@) { die1 "$0: fatal: unsupported flag value, use find instead: $arg\n" }
     elsif ($arg eq "--recursive=yes") { $is_recursive = 1 }
@@ -1250,15 +1300,16 @@ It follows symlinks to files only.
 
 # --- _cmd_find : xattr get_format_func find_matches parse_dump tagquery print_find_stats
 
+#** @returns $match_func, takes ->($tags, $fn0), returning bool.
 sub tagquery_to_match_func($) {
   my $tagquery = $_[0];
   my $match_func = $tagquery eq ":any" ? 1 :
-      ($tagquery eq ":tagged" or $tagquery eq "*") ? sub { my $tags = $_[1]; $tags =~ m@[^\s,]@ } :
-      ($tagquery eq ":none" or $tagquery eq "-*") ? sub { my $tags = $_[1]; $tags !~ m@[^\s,]@ } :
+      ($tagquery eq ":tagged" or $tagquery eq "*") ? sub { my $tags = $_[0]; $tags =~ m@[^\s,]@ } :
+      ($tagquery eq ":none" or $tagquery eq "-*") ? sub { my $tags = $_[0]; $tags !~ m@[^\s,]@ } :
       undef;
   if (!defined($match_func)) {
     my $orterms = parse_tagquery($tagquery);
-    $match_func = sub { my $tags = $_[1]; match_tagquery($tags, $orterms) };
+    $match_func = sub { match_tagquery($_[0], $_[1], $orterms) };  # ($tags, $filename, $orterms).
   }
   $match_func
 }
@@ -1348,7 +1399,7 @@ It follows symlinks to files only.
       my($fn0, $tags, $default_mode) = @_;
       # The following code is duplicate from find_matches.
       ++$C;
-      if ($match_func->($fn0, $tags)) {
+      if ($match_func->($tags, $fn0)) {
         $tags =~ s@[\s,]+@ @g;  # E.g. get rid of newlines for --format=colon.
         $tags =~ s@\A +@@; $tags =~ s@ +\Z(?!\n)@@;
         ++$HC if length($tags);
