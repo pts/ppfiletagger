@@ -208,6 +208,13 @@ to remove all previous tags of the file first), and there are some other
 tagging modes, see details and syntax here:
 https://github.com/pts/locfileorg/blob/master/doc/tagging.md
 
+Please note that the `eval' command above defines the shell function _mmfs,
+which is used subsequently for adding and removing tags. It's also possible
+to run ppfiletagger_shell_functions.sh directly, but with shell functions
+there is no limit on the number of files (e.g. it works even if `*.jpg'
+above matches millions of files), because they support command lines of
+unlimited size.
+
 Add some tags for all files you want to search for. Specify them using
 `_mmfs tag' or `setfattr -n user.mmfs.tags -v ...', as
 outlined above. You will be able to add more tags or change tags later.
