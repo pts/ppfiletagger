@@ -1439,7 +1439,7 @@ Without a <filename>, it searches indexes on all filesystems.
 ";
     exit(!@ARGV);
   }
-  die "$0: fatal: command not implemented\n";
+  die1 "$0: fatal: command not implemented\n";
 }
 
 # --- _cmd_rmtimescan : exec_prog
@@ -1463,7 +1463,7 @@ Without an <index-directory>, it updates indexes on all filesystems.
 ";
     exit(!@ARGV);
   }
-  die "$0: fatal: command not implemented\n";
+  die1 "$0: fatal: command not implemented\n";
 }
 
 # --- end
@@ -1573,9 +1573,9 @@ if (@ARGV == 1 and $ARGV[0] eq "--load") {
   die1 "$0: fatal: open script: $!\n" if !open(my($f), "<", $0);
   $_ = join("", <$f>);
   die if !close($f);
-  die "$0: fatal: #!perl not found in script\n" if !m@\n#!perl(?: .*)?\n@g;
+  die1 "$0: fatal: #!perl not found in script\n" if !m@\n#!perl(?: .*)?\n@g;
   substr($_, 0, pos($_)) = ""; pos($_) = 0;
-  die "$0: fatal: __END__ not found in script\n" if !m@\n__END__\n@g;
+  die1 "$0: fatal: __END__ not found in script\n" if !m@\n__END__\n@g;
   substr($_, pos($_)) = "";
   s@'@'\\''@g;
   $topcmd =~ s@\W@_@g;  # - is not allowed in shell function name.
