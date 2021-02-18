@@ -439,7 +439,8 @@ sub apply_to_multiple($$) {
 #** FYI No way to signal an error to Midight Commander without pausing.
 #** Example: _cmd_tag "tag1 -tag2 ..." file1 file2 ...    # keep tag3
 sub _cmd_tag {
-  die1 "$0: adds or removes tags on files
+  if (!@ARGV or $ARGV[0] eq "--help") {
+    print STDERR "$0: adds or removes tags on files
 Usage: $0 [--] \x27<tagspec>\x27 [<filename> ...]
     or ls | $0 --stdin [--] \x27<tagspec>\x27
     or $0 [<flag> ...] < <tagfile>
@@ -461,7 +462,9 @@ Flags:
 --mode=overwrite | --mode=set | --set : Like --prefix=.
 --mode=merge | --merge : Like --prefix=+
 The default for setfattr and getfattr is --set, otherwise --mode=change.
-" if !@ARGV or $ARGV[0] eq "--help";
+";
+    exit(!@ARGV);
+  }
   my $tagspecmsg = "...";
   my $action = "modified";
   if ((@ARGV == 2 and $ARGV[0] eq "--stdin" and $ARGV[1] ne "-" and substr($ARGV[1], 0, 2) ne "--") or
@@ -644,7 +647,8 @@ See above for the format of --stdin.
 
 #** See docs for using this command from Midnight Commander (mc) menu.
 sub _cmd_show {
-die1 "$0: shows tags the specified files have, interactively
+  if (!@ARGV or $ARGV[0] eq "--help") {
+    print STDERR "$0: shows tags the specified files have, interactively
 Usage: $0 [<flag> ...] [<filename> ...]
 Flags:
 --abspath : Display absolute pathname of each matching file.
@@ -658,7 +662,9 @@ Flags:
 --readdir : Legacy alias for --recursive=one
 --stdin : Get filenames from stdin rather than command-line.
 Supported <tagquerym> values: :any :tagged :none
-" if @ARGV and $ARGV[0] eq "--help";
+";
+    exit(!@ARGV);
+  }
   my $print_mode = 0;
   my $recursive_mode = 0;
   my $do_show_abs_path = 0;
@@ -917,7 +923,8 @@ sub print_find_stats($) {
 # --- _cmd_grep : xattr tagquery print_find_stats
 
 sub _cmd_grep {
-  die1 "$0: keeps file names matching a tag query
+  if (!@ARGV or $ARGV[0] eq "--help") {
+    print STDERR "$0: keeps file names matching a tag query
 Usage: $0 [<flag> ...] \x27<tagquery>\x27
 Reads filenames from stdin, writes matching the <tagquery> to stdout.
 Example: ls | _cmd_grep \"+foo -bar baz\"
@@ -927,7 +934,9 @@ Flags:
 --tagquery=<tagquery> : Query to match file tags against.
 --fast : Uses fast matching code, producing simplified stats.
   Replaces the <tagquery> argument.
-" if !@ARGV or $ARGV[0] eq "--help";
+";
+    exit(!@ARGV);
+  }
   my $tagquery;
   my $is_fast = 0;
   my $i = 0;
@@ -1141,7 +1150,8 @@ sub print_all_lines() {
 
 #** Example: _copyattr() { _cmd_dump --printfn="$2" -- "$1"; }; duprm.pl . | perl -ne "print if s@^rm -f @_copyattr @ and s@ #, keep @ @" >_d.sh; source _d.sh | sh
 sub _cmd_dump {
-  die1 "$0: dumps tags on files to stdout
+  if (!@ARGV or $ARGV[0] eq "--help") {
+    print STDERR "$0: dumps tags on files to stdout
 Usage: $0 [<flag> ...] <filename> [...] > <tagfile>
 Flags:
 --printfn=<filename> : In the output, print the specified filename instead.
@@ -1157,7 +1167,9 @@ Supported <tagquerym> values: :any :tagged :none
 To apply tags in <tagfile> printed by $0 (multiple --format=...), run:
   $0 tag --stdin --mode=change < <tagfile>
 It follows symlinks.
-" if !@ARGV or $ARGV[0] eq "--help";
+";
+    exit(!@ARGV);
+  }
   my($printfn);
   my $format_func;
   my $match_func = 1;
@@ -1218,7 +1230,8 @@ die1 "$0: assert: missing format default\n" if
     $format_usage_for_find !~ s@(\n--format=filename) : @$1 (default) : @;
 
 sub _cmd_find {
-  die1 "$0: finds matching files, prints list or dump to stdout
+  if (!@ARGV or $ARGV[0] eq "--help") {
+    print STDERR "$0: finds matching files, prints list or dump to stdout
 Usage: $0 [<flag> ...] [\x27<tagquery>\x27] [<filename> ...]
 Flags:
 --printfn=<filename> : In the output, print the specified filename instead.
@@ -1237,7 +1250,9 @@ The grep <tagquery> command is equivalent to: find --stdin <tagquery>
 The dump ... command is equivalent to: find --format=filename --any ...
 It supports more --tagquery=... values and --stdin-tagfile.
 It follows symlinks.
-" if !@ARGV or $ARGV[0] eq "--help";
+";
+    exit(!@ARGV);
+  }
   my($printfn);
   my $format_func;
   my $match_func;
@@ -1325,10 +1340,13 @@ sub _cmd_fixprincipal# Hide from <command> list.
 
 #** @example _cmd_expand_tag ta
 sub _cmd_expand_tag {
-  die1 "$0: display tags with the specified prefix
+  if (!@ARGV or $ARGV[0] eq "--help") {
+    print STDERR "$0: displays tags with the specified prefix
 Usage: $0 <tagprefix> [<limit>]
 The default limit is 10.
-" if !@ARGV or $ARGV[0] eq "--help";
+";
+    exit(!@ARGV);
+  }
   my @tags = sort(keys(%{read_tags_file()}));
   my $sign = "";
   my $prefix = @ARGV ? $ARGV[0] : "";
@@ -1432,7 +1450,7 @@ sub exit_usage() {
   print STDERR "$0: file tagging and search-by-tag tool\n" .
       "Usage: ${topcmd} <command> [<arg> ...]\n" .
       "Supported <command>s: @cmds\n";
-  exit(1);
+  exit(!@ARGV);
 }
 
 if (@ARGV == 1 and $ARGV[0] eq "--load") {
