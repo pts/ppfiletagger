@@ -257,12 +257,12 @@ Use <F2> <S> to show tags of the current file or of the selected files.
 
 Fast search with rmtimescan and rmtimequery
 """""""""""""""""""""""""""""""""""""""""""
-For fast search, use `rmtimescan --slow' to build or rebuild a search index
-(database), and use rmtimequery to run the search using the index (typically
-finishes faster than 1 second).
+For fast search, use rmtimescan (see below how) to build or rebuild a search
+index (database), and use `_mmfs rmtimequery <tagquery>` to run the search
+using the index (typically finishes faster than 1 second).
 
 On modern Linux systems, fast search won't work, because the rmtimescan and
-rmtimequery tools have some Python 2.x dependencies (an old bundled pyxattr
+rmtimequery commands have some Python 2.x dependencies (an old bundled pyxattr
 package and an old bundled pysqlite2 package). On very modern systems
 (released in 2020 or later), Python 2.x may not even be available anymore.
 
@@ -307,13 +307,13 @@ rmtimeup.ko kernel module.
 
 Search for files by tag using rmtimequery:
 
-  $ ./rtimequery 2009
+  $ _mmfs rmtimequery 2009
   ...
   ('/media/big/my/album/photo01.jpg', '2009 nature Europe')
   ('/media/big/my/album/photo02.jpg', '2009 nature Europe')
   ('/media/big2/calendar09.txt', 'calendar 2009')
   ...
-  $ ./rtimequery.py 2009 naTUre
+  $ _mmfs rmtimequery 2009 naTUre
   ...
   ('/media/big/my/album/photo01.jpg', '2009 nature Europe')
   ('/media/big/my/album/photo02.jpg', '2009 nature Europe')
