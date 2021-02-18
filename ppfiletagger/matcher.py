@@ -70,7 +70,7 @@ class Clause(object):
                     'bmp', 'xcf', 'pnm', 'pbm', 'pgm', 'ppm', 'xwd', 'xpm',
                     'pam', 'psd', 'miff', 'webp', 'heif', 'heifs', 'heic',
                     'heics', 'avci', 'avcs', 'avif', 'avifs', 'mng', 'apng',
-                    'ico', 'jxr', 'wdp', 'hdp',  'jp2', 'j2k', 'jpf', 'jpm',
+                    'ico', 'jxr', 'wdp', 'hdp', 'jp2', 'j2k', 'jpf', 'jpm',
                     'jpg2', 'j2c', 'jpc', 'jpx', 'mj2'])
   """Lowercase filename extension for still images."""
 
