@@ -1073,9 +1073,18 @@ sub get_format_func($;$) {
     $tagsc =~ s@[\s,]+@,@g;
     $tagsc =~ s@%@%25@g;
     $tagsc =~ s@\A,+@@; $tagsc =~ s@,+\Z(?!\n)@@;
-    my @st = stat($filename);
+    my @st = stat($filename);  # TODO(pts): Don't call this on --stdin-tagfile except if mfi format.
     @st ? "format=?-no-try mtime=$st[9] size=$st[7] tags=$tagsc f=$filename\n"
         : "format=?-no-try tags=$tagsc f=$filename\n"
+  } : ($format eq "mclist") ? sub {  # Ignores tags.
+    my($tags, $filename) = @_;
+    my @st = stat($filename);  # TODO(pts): Don't call this on --stdin-tagfile except if mfi format.
+    my($mtime, $size, $nlink) = @st ? ($st[9], $st[7], $st[3]) : (undef, "?", "?");
+    my $basename = $filename; $basename =~ s@\A.*/@@;
+    my($sec, $min, $hour, $mday, $mon, $year) = localtime($mtime or 0);
+    $year += 1900; ++$mon;
+    sprintf("lrwxrwxrwx %s root root %s %02d/%02d/%d %02d:%02d:%02d %s -> %s\n",
+            $nlink, $size, $mon, $mday, $year, $hour, $min, $sec, $basename, $filename)
   } : ($format eq "tuple") ? sub {
     my($tags, $filename) = (reprq($_[0]), reprq($_[1]));
     "($filename, $tags)\n"
@@ -1090,7 +1099,8 @@ my $format_usage =
 --format=mfi : Print in the mediafileinfo format.
 --format=filename | --format=name : Print filename only.
 --format=tags : Print tags (including v:...) encountered (deduplicated).
---format=tuple : Print (filename, tags) Python tuple.";
+--format=tuple : Print (filename, tags) Python tuple.
+--format=mclist : Print Midnight Commander extfs file listing.";
 
 # --- find_matches : format_filename
 
