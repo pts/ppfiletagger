@@ -662,6 +662,7 @@ Flags:
 --readdir : Legacy alias for --recursive=one
 --stdin : Get filenames from stdin rather than command-line.
 Supported <tagquerym> values: :any :tagged :none
+It follows symlinks to files and to the top dir with --recursive=one.
 ";
     exit(!@ARGV);
   }
@@ -696,7 +697,7 @@ Supported <tagquerym> values: :any :tagged :none
   my $process_file = sub {  # ($)
     my $fn0 = $_[0];
     $fn0 =~ s@\A(?:[.]/)+@@;
-    if (!-f($fn0)) {
+    if (!(lstat($fn0) and (-l(_) ? -f($fn0) : -f(_)))) {
       my $msg = -e(_) ? "not a file" : "missing";
       print "  $fn0\n    error: $msg\n"; $EC++; return
     }
@@ -736,7 +737,7 @@ Supported <tagquerym> values: :any :tagged :none
     for my $entry (sort(readdir($d))) {
       next if $entry eq "." or $entry eq "..";
       my $fn1 = "$fn0/$entry";
-      if ($recursive_mode == 2 and -d($fn1)) {
+      if ($recursive_mode == 2 and lstat($fn1) and -d(_)) {
         $process_dir->($fn1);
       } else {
         $process_file->($fn1);
@@ -744,15 +745,22 @@ Supported <tagquerym> values: :any :tagged :none
     }
     die if !closedir($d);
   };
+  my $process_tdir = sub {  # ($).
+    my $fn0 = $_[0];
+    ((($recursive_mode == 2 and lstat($fn0) and -d(_)) or
+      ($recursive_mode == 1 and -d($fn0))) ?
+     $process_dir : $process_file)->($fn0);
+  };
+  $process_tdir = $process_file if !$recursive_mode;  # For speed.
   if ($stdin_mode) {
     my $fn0;
     while (defined($fn0 = <STDIN>)) {
       die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
-      (($recursive_mode and -d($fn0)) ? $process_dir : $process_file)->($fn0);
+      $process_tdir->($fn0);
     }
   } else {
     for my $fn0 (@ARGV) {
-      (($recursive_mode and -d($fn0)) ? $process_dir : $process_file)->($fn0);
+      $process_tdir->($fn0);
     }
   }
   print "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
@@ -964,7 +972,7 @@ Flags:
     local $_;
     while (defined($fn0 = <STDIN>)) {
       die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
-      if (-f($fn0)) {
+      if (lstat($fn0) and (-l(_) ? -f($fn0) : -f(_))) {
         $_ = $getxattr->($fn0, $key02);  # $tags.
         if (!defined($_) and !$!{$ENOATTR2}) {
           print STDERR "error: $fn0: $!\n"; $EC++
@@ -1081,7 +1089,7 @@ sub find_matches($$$$$) {
   my $process_file = sub {  # ($).
     my $fn0 = $_[0];
     #print "  $fn0\n";
-    if (!-f($fn0)) {
+    if (!(lstat($fn0) and (-l(_) ? -f($fn0) : -f(_)))) {
       my $msg = -e(_) ? "not a file" : "missing";
       print STDERR "error: $msg: $fn0\n"; $EC++; return;
     }
@@ -1109,7 +1117,8 @@ sub find_matches($$$$$) {
   };
   my $process_xdir; $process_xdir = sub {  # ($).
     my $fn0 = $_[0];
-    return $process_file->($fn0) if !-d($fn0);
+    # It doesn't follow symlinks to directories.
+    return $process_file->($fn0) unless lstat($fn0) and -d(_);
     my $d;
     if (!opendir($d, $fn0)) {
       print STDERR "error: opendir: $fn0: $!\n"; $EC++; return
@@ -1166,7 +1175,7 @@ $format_usage
 Supported <tagquerym> values: :any :tagged :none
 To apply tags in <tagfile> printed by $0 (multiple --format=...), run:
   $0 tag --stdin --mode=change < <tagfile>
-It follows symlinks.
+It follows symlinks to files only.
 ";
     exit(!@ARGV);
   }
@@ -1249,7 +1258,7 @@ The find command is a generalization of grep and dump.
 The grep <tagquery> command is equivalent to: find --stdin <tagquery>
 The dump ... command is equivalent to: find --format=filename --any ...
 It supports more --tagquery=... values and --stdin-tagfile.
-It follows symlinks.
+It follows symlinks to files only.
 ";
     exit(!@ARGV);
   }
