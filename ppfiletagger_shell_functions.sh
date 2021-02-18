@@ -759,7 +759,7 @@ Supported <tagquerym> values: :any :tagged :none
 #** scripting.
 #** It works for weird filenames (containing e.g. " " or "\n"), too.
 sub _cmd_get_tags {
-  die1 "$0: displays tags a sigle file has
+  die1 "$0: displays tags a single file has
 Usage: $0 <filename>\n" if @ARGV != 1;
   my $fn0 = $ARGV[0];
   my $tags = $xattr_api->{getxattr}->($fn0, $key0);
