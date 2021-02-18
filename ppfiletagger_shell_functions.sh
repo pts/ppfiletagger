@@ -1385,11 +1385,46 @@ sub _cmd_rmtimequery# Hide from <command> list.
   exec_prog("rmtimequery");
 }
 
+# --- _cmd_query : exec_prog
+
+sub _cmd_query {
+  exec_prog("rmtimequery", 1) if $topcmd eq "_mmfs";
+  if (!@ARGV or $ARGV[0] eq "--help") {
+    print STDERR "$0: searches in the index, prints matching files to stdout
+Usage: $0 [<flag> ...] [\x27<tagquery>\x27] [<filename> ...]
+Flags:
+It is currently unimplemented.
+It reports an error when searching for files without tags.
+It follows symlinks to files only.
+Without a <filename>, it searches indexes on all filesystems.
+";
+    exit(!@ARGV);
+  }
+  die "$0: fatal: command not implemented\n";
+}
+
 # --- _cmd_rmtimescan : exec_prog
 
 sub _cmd_rmtimescan# Hide from <command> list.
 {
   exec_prog("rmtimescan");
+}
+
+# --- _cmd_scan : exec_prog
+
+sub _cmd_scan {
+  exec_prog("rmtimescan", 1) if $topcmd eq "_mmfs";
+  if (!@ARGV or $ARGV[0] eq "--help") {
+    print STDERR "$0: scans all filesystems and updates search indexes
+Usage: $0 [<flag> ...] [<index-directory> ...]
+Flags:
+It is currently unimplemented.
+It follows symlinks to files only.
+Without an <index-directory>, it updates indexes on all filesystems.
+";
+    exit(!@ARGV);
+  }
+  die "$0: fatal: command not implemented\n";
 }
 
 # --- end
