@@ -474,7 +474,7 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
     for my $fn0 (@$filenames) { die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0); }
     $known_tags = read_tags_file();
     ($action, $tagspecmsg) = apply_to_multiple($tagspec, $filenames);
-  } elsif (@ARGV and ($ARGV[0] eq "--" ? (@ARGV > 1 and substr($ARGV[1], 0, 2) ne "--") : substr($ARGV[0], 0, 2) ne "--")) {
+  } elsif (@ARGV and (($ARGV[0] eq "--" and @ARGV > 1) or $ARGV[0] !~ m@\A--(?:[^-]|\Z(?!\n))@)) {
     # Apply tags in $ARGV[0] to the files with filenames in @ARGV[1..].
     shift(@ARGV) if @ARGV and $ARGV[0] eq "--";
     # Midnight Commander (mc) prepends ./ to @ARGV elements starting with -.
