@@ -308,7 +308,6 @@ def Usage(argv0):
   # * It doesn't support --stdin-tagfile, because it always reads from the index.
   return ('%s: searches for matching files, prints list or dump to stdout\n'
           "Usage: %s [<flag> ...] ['<tagquery>'] [<filename> ...]\n"
-          'Without a <filename>, indexes on all filesystems are searched.\n'
           'Flags:\n'
           '--printfn=<filename> : In the output, print the specified filename instead.\n'
           '--tagquery=<tagquery> : Print files with matching tags.\n'
@@ -329,7 +328,8 @@ def Usage(argv0):
           '--recursive=no : Dump files only.\n'
           '--help : Print this help.\n'
           'It reports an error when searching for files without tags.\n'
-          'It follows symlinks.\n'
+          'It follows symlinks to files only.\n'
+          'Without a <filename>, it searches indexes on all filesystems.\n'
           % (argv0, argv0)).rstrip()
 
 
@@ -339,6 +339,9 @@ def main(argv):
   is_recursive = None
   is_stdin = False
   i = 1
+  if i >= len(argv):
+    print >>sys.stderr, Usage(argv[0])
+    return 1
   while i < len(argv):
     arg = argv[i]
     if arg == '--':
@@ -386,13 +389,11 @@ def main(argv):
     elif not arg.startswith('--'):
       break
     else:
-      print >>sys.stderr, Usage(argv[0])
       print >>sys.stderr, 'fatal: unknown flag: %s' % arg
       return 1
     i += 1
   if query is None:
     if i >= len(argv):
-      print >>sys.stderr, Usage(argv[0])
       print >>sys.stderr, 'fatal: missing query'
       return 1
     query = argv[i]
