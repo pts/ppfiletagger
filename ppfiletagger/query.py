@@ -306,7 +306,7 @@ def Usage(argv0):
   # * It supports -n as an alias for --format=filename.
   # * If <filename> is not specified, it searches for all filesystems with an index.
   # * It doesn't support --stdin-tagfile, because it always reads from the index.
-  return ('%s: searches for matching files, prints list or dump to stdout\n'
+  return ('%s: searches in the index, prints matching files to stdout\n'
           "Usage: %s [<flag> ...] ['<tagquery>'] [<filename> ...]\n"
           'Flags:\n'
           '--printfn=<filename> : In the output, print the specified filename instead.\n'
