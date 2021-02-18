@@ -206,7 +206,7 @@ class GlobalInfo(base.GlobalInfo):
     else:
       if matcher_obj.has_must_be_untagged:
         raise matcher.BadQuery(
-            'query attempts to matches files without tags (no database of those)')
+            'query attempts to match files without tags (no database of those)')
       if not matcher_obj.all_must_be_tagged:
         raise matcher.BadQuery(
             'query may match files without tags (no database of those)')
