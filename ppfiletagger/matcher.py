@@ -59,7 +59,7 @@ class Clause(object):
                'with_other_tags',
                'do_assume_match', 'do_assume_tags_match', 'is_impossible')
 
-  VIDEO_EXTS = set(['avi', 'wmv', 'mpg', 'mpe', 'mpeg', 'mov', 'rm',
+  VIDEO_EXTS = set(['avi', 'wmv', 'mpg', 'mpe', 'mpeg', 'mov', 'rm', 'webm',
                     'ram', 'flv', 'mp4', 'ts', 'iso', 'vob', 'fli', 'asf',
                     'asx', 'divx', 'qt', 'flc', 'ogm', 'mkv', 'img', 'vid',
                     'm2ts', 'original', 'rmvb', 'mp2', 'mpa', 'm4v', 'tp',
