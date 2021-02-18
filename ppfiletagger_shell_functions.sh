@@ -1363,6 +1363,35 @@ The default limit is 10.
   exit(@found_tags > 1 ? 2 : @found_tags ? 1 : 0);
 }
 
+# --- exec_prog
+
+sub exec_prog($;$) {
+  my $do_maybe = $_[1];
+  prepend_path_to_argv0();
+  local $_ = $argv0;
+  die1 "$0: fatal: program directory not found in: $_\n" if !s@/+[^/]+\Z(?!\n)@/$_[0]@;
+  if (!(-f($_) and -x($_))) {
+    die1 "$0: fatal: program not found: $_\n" if !$do_maybe;
+  } elsif (!exec($_, @ARGV)) {
+    print STDERR "$0: fatal: exec $_: $!\n";
+    exit(125);
+  }
+}
+
+# --- _cmd_rmtimequery : exec_prog
+
+sub _cmd_rmtimequery# Hide from <command> list.
+{
+  exec_prog("rmtimequery");
+}
+
+# --- _cmd_rmtimescan : exec_prog
+
+sub _cmd_rmtimescan# Hide from <command> list.
+{
+  exec_prog("rmtimescan");
+}
+
 # --- end
 END
 
@@ -1430,11 +1459,12 @@ while (m@\n# ---([ \t]*(\w+)(?: :[ \t]*([\w \t]*)|[ \t]*)(?=\n))?@g) {
   die1 "$0: assert: duplicate part: $part\n" if exists($parts{$part});
   $parts{$part} = \@deps;
 }
-# This also includes fixprincipal.
+# This would include hidden commands (e.g. fixprincipal).
 # my @cmds = map { m@^_cmd_(.*)@ and $1  ? ($1) : () } keys(%parts);
 my @cmds;
 while (m@\nsub[ \t]+(_cmd_(\w+))[ \t({]@g) { push @cmds, $2 if exists($parts{$1}) }
 
+my $argv0 = $0;
 my $topcmd = (@ARGV and $ARGV[0] =~ s@\A--0=@@) ? shift(@ARGV) : undef;
 if (!defined($topcmd)) {
   $topcmd = $0;
@@ -1445,6 +1475,8 @@ if (!defined($topcmd)) {
   $topcmd = "lfo" if !length($topcmd) or $topcmd eq "locfileorg";
   $topcmd = "_mmfs" if $topcmd eq "ppfiletagger" or $topcmd eq "mmfs";  # Legacy.
 }
+my $argv0e = $ENV{"_${topcmd}_ARGV0"};  # Set by --load.
+$argv0 = $argv0e if defined($argv0e) and length($argv0e);
 
 sub exit_usage() {
   print STDERR "$0: file tagging and search-by-tag tool\n" .
@@ -1453,7 +1485,17 @@ sub exit_usage() {
   exit(!@ARGV);
 }
 
+sub prepend_path_to_argv0() {
+  if ($argv0 !~ m@/@) {
+    for my $dir (split(m@:@, exists($ENV{PATH}) ? $ENV{PATH} : "/bin:/usr/bin")) {
+      if (length($dir) and -f("$dir/$argv0")) { $argv0 = "$dir/$argv0"; last }
+    }
+    die1 "$0: fatal: program not found on \$PATH: $_\n" if $argv0 !~ m@/@;
+  }
+}
+
 if (@ARGV == 1 and $ARGV[0] eq "--load") {
+  eval <<'  ENDLOAD'; die $@ if $@;
   die1 "$0: fatal: open script: $!\n" if !open(my($f), "<", $0);
   $_ = join("", <$f>);
   die if !close($f);
@@ -1466,29 +1508,57 @@ if (@ARGV == 1 and $ARGV[0] eq "--load") {
   # TODO(pts): Add bash and zsh completion in addition to these functions.
   my $funcs = join("", map { "${topcmd}_$_() { ${topcmd} $_ \"\$@\"; }\n" } @cmds);
   # Unlimited argv support (using set -x) works in bash, zsh, ksh, pdksh, lksh,
-  # mksh and busybox sh (since about 1.17.3 in 2010). It doesn't work in dash.
-  print "unset _${topcmd}_PERLCODE; _${topcmd}_PERLCODE='\$0=\"$topcmd\";$_'\n".qq(
+  # mksh and busybox sh (since about 1.17.3 in 2010) and dash.
+  prepend_path_to_argv0();
+  if ($argv0 !~ m@\A/@) {
+    eval {
+      require Cwd;
+      my $cwd = Cwd::getcwd();
+      if (defined($cwd) and length($cwd)) {
+        $argv0 =~ s@\A(?:[.]/+)+@@;
+        $argv0 = "$cwd/$argv0";
+      }
+    };
+  }
+  my $argv0q = $argv0; $argv0 =~ s@'@'\\''@g;
+  my $xq = $^X; $xq =~ s@'@'\\''@g;
+  print "unset _${topcmd}_ARGV0; _${topcmd}_ARGV0='$argv0q'\n".
+      "unset _${topcmd}_PERLCODE; _${topcmd}_PERLCODE='\$0=\"$topcmd\";$_'\n".qq(
 case "\$(exec 2>&1; set -x; : "a b")" in  # Detect unlimited argv support.
 *" : 'a b'"\) ${topcmd}() {  # Avoid E2BIG by passing long argv on stdin.
   (exec 9>&0; (exec 2>&1; set -x; : - "\$\@") |
-  (export _${topcmd}_PERLCODE; exec perl -e 'eval\$ENV{_${topcmd}_PERLCODE};die\$\@if\$\@' -- --sa))
+  (export _${topcmd}_PERLCODE; export _${topcmd}_ARGV0; exec perl -e 'eval\$ENV{_${topcmd}_PERLCODE};die\$\@if\$\@' -- --sa))
 } ;;
-*\) case "\$(exec 2>&1; printf %s\\\\000\\\\ny "a  b" | '$^X' -pe 'y~\\0~x~')" in
+*\) case "\$(exec 2>&1; printf %s\\\\000\\\\ny "a  b" | '$xq' -pe 'y~\\0~x~')" in
 "a  bx
-y"*\) ${topcmd}() {  # Terminating long args with NUL NL.
+y"*\) ${topcmd}() {  # Terminating long args with NUL NL. For dash.
   (exec 9>&0; for A in : "\$@"; do printf %s\\\\000\\\\n "\$A"; done |
-  (export _${topcmd}_PERLCODE; exec perl -e 'eval\$ENV{_${topcmd}_PERLCODE};die\$\@if\$\@' -- --sa))
+  (export _${topcmd}_PERLCODE; export _${topcmd}_ARGV0; exec perl -e 'eval\$ENV{_${topcmd}_PERLCODE};die\$\@if\$\@' -- --sa))
 } ;;
 *\) ${topcmd}() {  # Fallback with size-limited argv (E2BIG).
-  (export _${topcmd}_PERLCODE; exec perl -e 'eval\$ENV{_${topcmd}_PERLCODE};die\$\@if\$\@' -- "\$\@")
+  (export _${topcmd}_PERLCODE; export _${topcmd}_ARGV0; exec perl -e 'eval\$ENV{_${topcmd}_PERLCODE};die\$\@if\$\@' -- "\$\@")
 } ;;
 esac ;;
 esac\n$funcs);
   exit;
+  ENDLOAD
 }
 $0 = $topcmd;
 
-exit_usage() if !@ARGV or $ARGV[0] eq "--help";
+if (!@ARGV or $ARGV[0] eq "--help") {
+  if ($topcmd eq "_mmfs") {
+    prepend_path_to_argv0();
+    my $progdir = $argv0;
+    if ($progdir =~ s@/+[^/]+\Z(?!\n)@/@) {
+      for my $cmd (qw(rmtimequery rmtimescan)) {
+        $_ = $progdir . $cmd;
+        push @cmds, $cmd if -f and -x;
+      }
+    }
+  }
+  exit_usage();
+}
+
 my $cmd = shift(@ARGV);
 if ($cmd eq "help") {
   exit_usage() if !@ARGV;
