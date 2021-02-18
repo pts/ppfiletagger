@@ -938,7 +938,7 @@ Reads filenames from stdin, writes matching the <tagquery> to stdout.
 Example: ls | _cmd_grep \"+foo -bar baz\"
 Flags:
 --stdin (default) : Get filenames from stdin rather than command-line.
---format=filename (filename) : Print filename only.
+--format=filename | --format=name (default) : Print filename only.
 --tagquery=<tagquery> : Query to match file tags against.
 --fast : Uses fast matching code, producing simplified stats.
   Replaces the <tagquery> argument.
@@ -954,7 +954,7 @@ Flags:
     elsif (substr($arg, 0, 2) ne "--") { --$i; last }
     elsif ($arg eq "--stdin") {}
     elsif ($arg eq "--fast") { $is_fast = 1 }
-    elsif ($arg eq "--format=filename") {}
+    elsif ($arg eq "--format=filename" or $arg eq "--format=name") {}
     elsif ($arg =~ m@\A--tagquery=(.*)@s) { $tagquery = $1 }
     else { die1 "$0: fatal: unknown flag: $arg\n" }
   }
@@ -1044,7 +1044,7 @@ sub get_format_func($;$) {
       }
     }
     $result
-  } : ($format eq "filename") ? $format_filename :
+  } : ($format eq "filename" or $format eq "name") ? $format_filename :
   ($format eq "getfattr") ? sub {
     my($tags, $filename) = @_;
     # getfattr always omits files without tags (i.e. without the
@@ -1069,7 +1069,7 @@ my $format_usage =
 --format=colon : Print in the colon format: <tags> :: <filename>
 --format=getfattr : Print the same output as: getfattr -e text
 --format=mfi : Print in the mediafileinfo format.
---format=filename : Print filename only.
+--format=filename | --format=name : Print filename only.
 --format=tags : Print tags (including v:...) encountered (deduplicated).";
 
 # --- find_matches : format_filename
@@ -1236,7 +1236,7 @@ sub tagquery_to_match_func($) {
 my $format_usage_for_find = $format_usage;
 $format_usage_for_find =~ s@\Q (default) @ @g;
 die1 "$0: assert: missing format default\n" if
-    $format_usage_for_find !~ s@(\n--format=filename) : @$1 (default) : @;
+    $format_usage_for_find !~ s@(\n--format=filename.*?) : @$1 (default) : @;
 
 sub _cmd_find {
   if (!@ARGV or $ARGV[0] eq "--help") {
