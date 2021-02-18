@@ -120,9 +120,9 @@ class Clause(object):
         AllowExts(self.VIDEO_EXTS)
       elif term in ('-:vid', '-:video', '-:film', '-:movie'):
         DisallowExts(self.VIDEO_EXTS)
-      elif term in (':pic', ':picture', ':img', ':image'):
+      elif term in (':pic', ':picture', ':img', ':image', ':photo'):
         AllowExts(self.IMAGE_EXTS)
-      elif term in ('-:pic', '-:picture', '-:img', '-:image'):
+      elif term in ('-:pic', '-:picture', '-:img', '-:image', '-:photo'):
         DisallowExts(self.IMAGE_EXTS)
       elif term in (':aud', ':audio', ':snd', ':sound'):
         AllowExts(self.AUDIO_EXTS)
