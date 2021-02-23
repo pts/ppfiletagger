@@ -694,11 +694,15 @@ It follows symlinks to files and to the top dir with --recursive=one.
   }
   require Cwd if $do_show_abs_path;
   my $process_file = sub {  # ($)
-    my $fn0 = $_[0];
+    my($fn0, $no_symlink_to_file2) = @_;
     $fn0 =~ s@\A(?:[.]/)+@@;
-    if (!(lstat($fn0) and (-l(_) ? -f($fn0) : -f(_)))) {
-      my $msg = -e(_) ? "not a file" : "missing";
-      print "  $fn0\n    error: $msg\n"; $EC++; return
+    my $ignore_cond = (!lstat($fn0) or (-l(_) ? ($no_symlink_to_file2 or !-f($fn0)) : !-f(_)));
+    if ($ignore_cond) {
+      if ($ignore_cond <= 1) {  # Omit symlinks to files.
+        my $msg = -e(_) ? "not a file" : "missing";
+        print "  $fn0\n    error: $msg\n"; $EC++;
+      }
+      return;
     }
     my $fn = $fn0;
     if ($do_show_abs_path) {
@@ -733,33 +737,33 @@ It follows symlinks to files and to the top dir with --recursive=one.
     if (!opendir($d, $fn0)) {
       print "  $fn0\n    error: opendir: $!\n"; $EC++; return
     }
+    # It doesn't follow symlinks to non-files. It follows symlinks to files
+    # iff .nosymfile doesn't exist in the directory.
+    my $no_symlink_to_file2 = -e("$fn0/.nosymfile") ? 2 : 0;
     for my $entry (sort(readdir($d))) {
       next if $entry eq "." or $entry eq "..";
-      my $fn1 = "$fn0/$entry";
-      if ($recursive_mode == 2 and lstat($fn1) and -d(_)) {
-        $process_dir->($fn1);
-      } else {
-        $process_file->($fn1);
-      }
+      my $fn = "$fn0/$entry";
+      (($recursive_mode == 2 and lstat($fn) and -d(_)) ?
+          $process_dir : $process_file)->($fn, $no_symlink_to_file2);
     }
     die if !closedir($d);
   };
-  my $process_tdir = sub {  # ($).
+  my $process_xdir = sub {  # ($).
     my $fn0 = $_[0];
     ((($recursive_mode == 2 and lstat($fn0) and -d(_)) or
       ($recursive_mode == 1 and -d($fn0))) ?
      $process_dir : $process_file)->($fn0);
   };
-  $process_tdir = $process_file if !$recursive_mode;  # For speed.
+  my $process_func = $recursive_mode ? $process_xdir : $process_file;  # For speed.
   if ($stdin_mode) {
     my $fn0;
     while (defined($fn0 = <STDIN>)) {
       die1 "$0: fatal: incomplete line in filename: $fn0\n" if !chomp($fn0);
-      $process_tdir->($fn0);
+      $process_xdir->($fn0);
     }
   } else {
     for my $fn0 (@ARGV) {
-      $process_tdir->($fn0);
+      $process_xdir->($fn0);
     }
   }
   print "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
@@ -1166,12 +1170,16 @@ sub find_matches($$$$$) {
   }
   $is_recursive = $is_stdin ? 0 : 1 if !defined($is_recursive);
   #print "to these files:\n";
-  my $process_file = sub {  # ($).
-    my $fn0 = $_[0];
+  my $process_file = sub {  # ($$).
+    my($fn0, $no_symlink_to_file2) = @_;
+    my $ignore_cond = (!lstat($fn0) or (-l(_) ? ($no_symlink_to_file2 or !-f($fn0)) : !-f(_)));
     #print "  $fn0\n";
-    if (!(lstat($fn0) and (-l(_) ? -f($fn0) : -f(_)))) {
-      my $msg = -e(_) ? "not a file" : "missing";
-      print STDERR "error: $msg: $fn0\n"; $EC++; return;
+    if ($ignore_cond) {
+      if ($ignore_cond <= 1) {  # Omit symlinks to files.
+        my $msg = -e(_) ? "not a file" : "missing";
+        print STDERR "error: $msg: $fn0\n"; $EC++;
+      }
+      return;
     }
     if ($fn0 =~ y@\n@@) {
       print STDERR "error: newline in filename: " . fnq($fn0) . "\n"; $EC++; return
@@ -1195,19 +1203,25 @@ sub find_matches($$$$$) {
       print $format_func->($tags, defined($printfn) ? $printfn : $fn0);
     }
   };
-  my $process_xdir; $process_xdir = sub {  # ($).
+  my $process_dir; $process_dir = sub {  # ($).
     my $fn0 = $_[0];
-    # It doesn't follow symlinks to directories.
-    return $process_file->($fn0) unless lstat($fn0) and -d(_);
     my $d;
     if (!opendir($d, $fn0)) {
       print STDERR "error: opendir: $fn0: $!\n"; $EC++; return
     }
+    # It doesn't follow symlinks to non-files. It follows symlinks to files
+    # iff .nosymfile doesn't exist in the directory.
+    my $no_symlink_to_file2 = -e("$fn0/.nosymfile") ? 2 : 0;
     for my $entry (sort(readdir($d))) {
       next if $entry eq "." or $entry eq "..";
-      $process_xdir->("$fn0/$entry");
+      my $fn = "$fn0/$entry";
+      ((lstat($fn) and -d(_)) ?
+          $process_dir : $process_file)->($fn, $no_symlink_to_file2);
     }
-    die if !closedir($d);
+  };
+  my $process_xdir; $process_xdir = sub {  # ($).
+    my $fn0 = $_[0];
+    ((lstat($fn0) and -d(_)) ? $process_dir : $process_file)->($fn0);
   };
   my $process_func = $is_recursive ? $process_xdir : $process_file;
   if ($is_stdin) {
