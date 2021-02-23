@@ -285,7 +285,7 @@ class RootInfo(base.RootInfo):
           fsdir = root_dir
 
         try:
-          st = os.stat(fsdir)
+          st = os.lstat(fsdir)
           stack_entry.ino = st.st_ino
         except OSError, e:
           logging.info('cannot list dir: %s' % e)
