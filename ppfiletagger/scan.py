@@ -325,6 +325,7 @@ class RootInfo(base.RootInfo):
         except OSError, e:
           logging.info('cannot list dir: %s' % e)
           entries = ()
+        do_symlink_to_file = not os.path.exists(fsdir + '/.nosymfile')
         #print (dir, entries)
         del subdirs[:]
         del fileattrs[:]
@@ -359,7 +360,7 @@ class RootInfo(base.RootInfo):
             logging.info('cannot stat: %s' % e)
             st = None
 
-          if st and stat.S_ISLNK(st.st_mode):
+          if st and do_symlink_to_file and stat.S_ISLNK(st.st_mode):
             try:
               st2 = os.stat(fsfn)
             except OSError, e:

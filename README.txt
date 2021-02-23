@@ -305,6 +305,13 @@ addition to the filenames and the inodes. The second run of rmtimescan
 rescanning, visiting only paths which have changed -- but this needs the
 rmtimeup.ko kernel module.
 
+While scanning, symlinks to non-files (e.g. directories) are not followed,
+and symlinks to files are followed unless an entry (file or directory) named
+.nosymfile exists in the directory containing the file. This .nosymfile can
+be used to prevent slow scanning of symlinks pointing to files on slow
+network filesystems. Please note that .nosymfile does not apply recursively,
+i.e. it's not checked in parent directories.
+
 Search for files by tag using `_mmfs query' (rmtimequery):
 
   $ _mmfs query 2009
