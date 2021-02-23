@@ -231,7 +231,7 @@ sub parse_dump($$) {
       die1 "$0: fatal: missing filename for key: $key ($lineno)\n" if
           !defined($cfilename);
       $process_func->($cfilename, $value, ".") if $key eq $key0;
-    } elsif ($line =~ m@(.*?):: (.*?)\n@) {
+    } elsif ($line =~ m@(.*?) :: (.*?)\n@) {
       my($tagspec, $filename) = ($1, $2);
       $process_func->($filename, $tagspec, undef);
     } elsif ($line =~ m@^#@) {  # Comment.
