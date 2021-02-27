@@ -888,7 +888,7 @@ sub parse_tagquery($) {
     next if $extmode and !%extplus;  # No possible extension.
     $extmode = %extplus ? 1 : %extminus ? -1 : 0;
     my $ext = %extplus ? \%extplus : \%extminus;
-    print STDERR "info: query spec needplus=(@{[sort(keys(%needplus))]}) needminus=(@{[sort(keys(%needminus))]}) needother=(@{[sort(keys(%needother))]}) extmode=$extmode ext=(@{[sort(keys(%$ext))]})\n";
+    #print STDERR "info: query spec needplus=(@{[sort(keys(%needplus))]}) needminus=(@{[sort(keys(%needminus))]}) needother=(@{[sort(keys(%needother))]}) extmode=$extmode ext=(@{[sort(keys(%$ext))]})\n";
     push @orterms, [\%needplus, \%needminus, \%needother, $extmode, $ext];
   }
   @orterms = ([$has_none ? {} : {"*" => 1}, {}, {}]) if $has_tagged;
