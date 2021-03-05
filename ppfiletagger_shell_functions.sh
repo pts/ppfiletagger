@@ -874,7 +874,7 @@ sub parse_tagquery($) {
     }
     die1 "$0: fatal: empty termlist in <tagquery>: $termlist\n" if !($had_any or %needplus or %needminus or $extmode or %extminus);
     if (exists($needminus{"*"})) {
-      next if %needplus;  # FYI %needplus implies %needother.
+      next if %needplus;  # FYI %needother implies %needplus.
       %needminus = ("*" => 1);
     }
     next if grep { exists($needplus{$_}) } keys(%needminus);
