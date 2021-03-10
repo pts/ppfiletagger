@@ -901,32 +901,41 @@ sub match_tagquery($$$) {
   my $fext;
   for my $orterm (@$orterms) {
     my($needplus, $needminus, $needother, $extmode, $ext) = @$orterm;
-    my %np=%$needplus;
+    my $is_nmstar = exists($needminus->{"*"});
+    my %np = %$needplus;
     #print "($tags)\n";
-    my $tagc=0;
     pos($tags) = 0;
-    while ($tags=~/([^\s,]+)/g) {
-      my $tag=$1;
-      $tagc++ if !$needother->{$tag};
-      delete $np{$tag};
-      if ($needminus->{$tag} or $needminus->{"*"}) { %np = (1 => 1); last }
-    }
-    delete $np{"*"} if $tagc>0;
-    if ($extmode) {
-      if (!%np) {
-        if (!defined($fext)) {
-          $fext = "";
-          my $i = rindex($filename, ".") + 1;
-          if ($i) {
-            pos($filename) = $i;
-            $fext = lc($1) if $filename =~ m@\G([^./]+)\Z(?!\n)@gc;
-          }
-        }
-        return 1 if ($extmode < 0) ^ exists($ext->{$fext});
+    if (%$needother) {
+      my $other_tagc = 0;
+      while ($tags=~/([^\s,]+)/g) {
+        my $tag = $1;
+        if ($is_nmstar or exists($needminus->{$tag})) { %np = (1 => 1); last }  # Tag mismatch.
+        $other_tagc++ if !exists($needother->{$tag});
+        delete $np{$tag};
       }
-    } else {
-      return 1 if !%np;  # Found match in current orterm.
+      delete $np{"*"} if $other_tagc > 0;
+    } elsif (%$needminus) {  # For speed.
+      while ($tags=~/([^\s,]+)/g) {
+        my $tag = $1;
+        if ($is_nmstar or exists($needminus->{$tag})) { %np = (1 => 1); last }  # Tag mismatch.
+        delete $np{$tag};
+      }
+      delete $np{"*"} if exists($np{"*"}) and $tags =~ m@[^\s,]@;
+    } else {  # For speed.
+      delete $np{$1} while $tags=~/([^\s,]+)/g;
+      delete $np{"*"} if exists($np{"*"}) and $tags =~ m@[^\s,]@;
     }
+    next if %np;  # Tag mismatch in current $orterm.
+    return 1 if !$extmode;  # Found match in current $orterm.
+    if (!defined($fext)) {
+      $fext = "";
+      my $i = rindex($filename, ".") + 1;
+      if ($i) {
+        pos($filename) = $i;
+        $fext = lc($1) if $filename =~ m@\G([^./]+)\Z(?!\n)@gc;
+      }
+    }
+    return 1 if ($extmode < 0) ^ exists($ext->{$fext});
   }
   0  # No match.
 }
