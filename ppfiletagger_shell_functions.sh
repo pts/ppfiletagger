@@ -878,6 +878,8 @@ sub parse_tagquery($) {
       %needminus = ("*" => 1);
     }
     next if grep { exists($needplus{$_}) } keys(%needminus);
+    for my $tagv (keys(%needminus)) { delete $needother{$tagv} }
+    %needother = () if %needother and (grep { $_ ne "*" and !exists($needother{$_}) } keys(%needplus));
     delete $needplus{"*"} if exists($needplus{"*"}) and scalar(keys(%needplus)) > 1 and !%needother;
     if (!%extplus and !%extminus) {
       $has_tagged = 1 if exists($needplus {"*"}) and scalar(keys(%needplus)) == 1 and !%needminus and !%needother;
