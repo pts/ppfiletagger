@@ -169,6 +169,9 @@ class Clause(object):
       self.with_tags.clear()  # Optimization after setting self.must_be_tagged.
       self.without_tags.clear()  # Optimization.
       self.with_other_tags.clear()  # Optimization.
+    self.with_other_tags.difference_update(self.without_tags)
+    if not self.with_tags.issubset(self.with_other_tags):
+      self.with_other_tags.clear()
     if self.with_any_exts is not None:
       self.with_any_exts.difference_update(self.without_exts)
       self.without_exts.clear()  # It's enough to check the positive.
