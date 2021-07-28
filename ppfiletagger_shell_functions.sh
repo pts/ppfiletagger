@@ -458,9 +458,10 @@ Flags:
   than command-line. Otherwise same as --stdin-tagfile.
 --stdin-tagfile : Read <tagfile> from stdin.
 --any-tag-ok : Do not read the known-tags file, accept any tag.
---mode=change : Like --prefix=++
---mode=overwrite | --mode=set | --set : Like --prefix=.
---mode=merge | --merge : Like --prefix=+
+--prefix=<prefix> : Add prefix in front of each <tagspec> .
+--mode=change : Use change mode, like --prefix=++
+--mode=overwrite | --mode=set | --set : Use overwrite mode, like --prefix=.
+--mode=merge | --merge : Use merge mode, like --prefix=+ and unify_tags.
 The default for setfattr and getfattr is --set, otherwise --mode=change.
 ";
     exit(!@ARGV);
