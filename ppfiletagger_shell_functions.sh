@@ -261,7 +261,7 @@ my $known_tags;
 my $pmtag_re = qr/(---|[-+]?)((?:v:)?(?:$tagchar_re)+)/o;
 
 sub apply_tagspec($$$$) {
-  my($tagspec, $mode, $filenames, $is_verbose) = @_;
+  my($tagspec, $mode, $get_filenames_func, $is_verbose) = @_;
   # Parse $tagspec (<tagpec>).
   $tagspec = "" if !defined($tagspec);
   $tagspec =~ s@\A\s+@@;
@@ -333,7 +333,7 @@ sub apply_tagspec($$$$) {
 
   # Read file xattrs, apply updates from @ptags, @mtags and %new_vtags,
   # write file xattrs.
-  FN0: for my $fn0 (@$filenames) {
+  FN0: for my $fn0 (@{$get_filenames_func->()}) {
     print "  $fn0\n";
     if ($is_nop) {
       print "    unchanged by tagspec: $tagspecmsg\n" if $is_verbose;
@@ -428,8 +428,9 @@ sub apply_tagspec($$$$) {
 sub apply_to_multiple($$) {
   my($tagspec, $filenames) = @_;
   $tagspec =~ s@\A\Q./@@;  # Prepended by Midnight Commander (mc).
-  print "to these files:\n";
-  my($tag_mode, $tagspecmsg) = apply_tagspec($tagspec, "++", $filenames, 0);
+  # For a long list of files, it's faster to pass the reference ($filenames).
+  my $get_filenames_func = sub { print "to these files:\n"; $filenames };
+  my($tag_mode, $tagspecmsg) = apply_tagspec($tagspec, "++", $get_filenames_func, 0);
   my $action = $tag_mode eq "overwrite" ? "overwritten" : $tag_mode eq "merge" ? "merged" : "changed";
   ($action, $tagspecmsg)
 }
@@ -503,7 +504,7 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
     die1 "$0: fatal: expected --stdin-tagfile because of other flags\n" if $stdin_mode != 2;
     my $process_func = sub {
       my($filename, $tags, $default_mode) = @_;
-      apply_tagspec($tagspec_prefix . $tags, ($mode or $default_mode), [$filename], 1);
+      apply_tagspec($tagspec_prefix . $tags, ($mode or $default_mode), sub { [$filename] }, 1);
     };
     $known_tags = read_tags_file() if $do_read_tags_file;
     parse_dump(\*STDIN, $process_func);
@@ -1180,7 +1181,6 @@ sub find_matches($$$$$) {
     }
   }
   $is_recursive = $is_stdin ? 0 : 1 if !defined($is_recursive);
-  #print "to these files:\n";
   my $process_file = sub {  # ($$).
     my($fn0, $no_symlink_to_file2) = @_;
     my $ignore_cond = (!lstat($fn0) or (-l(_) ? ($no_symlink_to_file2 or !-f($fn0)) : !-f(_)));
