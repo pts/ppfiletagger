@@ -462,12 +462,17 @@ Flags:
 --mode=change : Use change mode, like --prefix=++
 --mode=overwrite | --mode=set | --set : Use overwrite mode, like --prefix=.
 --mode=merge | --merge : Use merge mode, like --prefix=+ and unify_tags.
+--exit-unchanged=<code> : When all files unchanged (tags kept). Default: 0.
 The default for setfattr and getfattr is --set, otherwise --mode=change.
 ";
     exit(!@ARGV);
   }
   my $tagspecmsg = "...";
   my $action = "modified";
+  my $exit_unchanged = 0;
+  if (@ARGV and $ARGV[0] =~ m@\A--exit-unchanged=(.*)@s) {
+    $exit_unchanged = $1 + 0; shift(@ARGV);
+  }
   if ((@ARGV == 2 and $ARGV[0] eq "--stdin" and $ARGV[1] ne "-" and substr($ARGV[1], 0, 2) ne "--") or
       (@ARGV == 3 and $ARGV[0] eq "--stdin" and $ARGV[1] eq "--" and $ARGV[2] ne "-" and substr($ARGV[2], 0, 2) ne "--")) {
     # Read filenames from stdin, apply tags in $ARGV[1];
@@ -498,6 +503,7 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
       elsif ($arg eq "--mode=merge" or $arg eq "--mode=+" or $arg eq "--merge") { $mode = "+" }
       elsif ($arg =~ m@\A--mode=@) { die1 "$0: fatal: unknown flag value: $arg\n" }
       elsif ($arg =~ m@\A--prefix=(.*)@s) { $tagspec_prefix = "$1 " }
+      elsif ($arg =~ m@\A--exit-unchanged=(.*)@s) { $exit_unchanged = $1 + 0 }
       elsif ($arg eq "--any-tag-ok") { $do_read_tags_file = 0 }
       else { die1 "$0: fatal: unknown flag: $arg\n" }
     }
@@ -513,6 +519,7 @@ The default for setfattr and getfattr is --set, otherwise --mode=change.
   print "error with $EC file@{[$EC==1?q():q(s)]}\n" if $EC;
   print "kept tags of $KC file@{[$KC==1?q():q(s)]}\n" if $KC;
   print "$action tags of $C file@{[$C==1?q():q(s)]}: $tagspecmsg\n";
+  exit($exit_unchanged) if $exit_unchanged and !$EC and !$C;
 }
 
 # --- _cmd_unify_tags : xattr
