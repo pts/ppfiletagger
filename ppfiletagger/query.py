@@ -327,6 +327,7 @@ def Usage(argv0):
           '--recursive=yes (default w/o --stdin) : Dump directories, recursively.\n'
           '--recursive=no : Dump files only.\n'
           '--help : Print this help.\n'
+          '--check : Check that Python and and dependencies work.\n'
           'It reports an error when searching for files without tags.\n'
           'It follows symlinks to files only.\n'
           'Without a <filename>, it searches indexes on all filesystems.\n'
@@ -385,6 +386,9 @@ def main(argv):
       is_recursive = False
     elif arg == '--help':
       print >>sys.stderr, Usage(argv[0])
+      return 0
+    elif arg == '--check':
+      print >>sys.stderr, 'info: %s OK.' % argv[0]
       return 0
     elif not arg.startswith('--'):
       break
