@@ -182,9 +182,10 @@ Use getfattr to dump all extended attributes recursively:
 
 Please note that the extended attribute `user.mmfs.tags' has special
 significance: it is the whitespace-separated list of tags (keywords)
-associated to the file.  You can use the characters a-zA-Z0-9_: in tag
-names. Tag names are case preserving, tag search is case sensitive.
-See more information about tag syntax later.
+associated to the file. In tag names you can use the characters a-zA-Z0-9_
+(and also all non-ASCII Unicode characters, encoded as UTF-8). Tag names are
+case preserving, tag search is case sensitive. See more info about
+tag syntax later.
 
 Download https://github.com/pts/ppfiletagger/archive/master.zip , extract
 it, and cd into the ppfiletagger-master directory:
@@ -234,6 +235,12 @@ After adding tags, you can already find files matching a query:
   $ _mmfs find --format=colon '2009 -nature' /media/big2
   calendar 2009 :: /media/big2/calendar09.txt
   ...
+  $ _mmfs find --format=colon '2009 nature' /media/big/my
+  2009 nature Europe :: /media/big/my/album/photo01.jpg
+  2009 nature Europe :: /media/big/my/album/photo02.jpg
+  ...
+  $ _mmfs find --format=colon '2009 naTUre' /media/big/my/album
+  (no match, search is case sensitive)
 
 Please note that the `_mmfs find' command is very slow (may take several
 minutes), because it does a recursive file and diretory scan, and it
@@ -349,11 +356,13 @@ Search for files by tag using `_mmfs query' (rmtimequery):
   2009 nature Europe :: /media/big/my/album/photo02.jpg
   calendar 2009 :: /media/big2/calendar09.txt
   ...
-  $ _mmfs query --format=colon '2009 naTUre'
+  $ _mmfs query --format=colon '2009 nature'
   ...
   2009 nature Europe :: /media/big/my/album/photo01.jpg
   2009 nature Europe :: /media/big/my/album/photo02.jpg
   ...
+  $ _mmfs query --format=colon '2009 naTUre'
+  (no match, search is case sensitive)
 
 You specify a conjunction (``and'') of case insensitive tags in the
 `_mmfs query' command line, and `_mmfs query' lists very quickly all files
