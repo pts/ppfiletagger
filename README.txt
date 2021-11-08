@@ -134,7 +134,7 @@ Tagging and slow search
 """""""""""""""""""""""
 Open a terminal window, decide about which files to add tags to (in the
 example it will be files in /media/big/my/album etc.). If unsure, copy some
-.jpgs file from your ~/Downloads or ~/Pictures directory to /tmp , and add
+.jpg files from your ~/Downloads or ~/Pictures directory to /tmp , and add
 some dummy tags there.
 
 Start adding tags (and other metadata) with the setfattr command (without
@@ -168,7 +168,7 @@ Linux, then:
 * If the remount fails, then your filesystem probably doesn't support
   extended attributes (and thus ppfiletagger won't work). Try another
   filesystem (e.g. in /tmp), or look at the ``System requirements'' section
-  for more information.
+  for more info.
 
 * Try the setfattr or getfattr command again.
 
@@ -227,7 +227,7 @@ outlined above. You will be able to add more tags or change tags later.
 After adding tags, you can already find files matching a query:
 
   $ eval "$(./ppfiletagger_shell_functions.sh --load)"
-  $ _mmfs find '2009' /media/big/my/a
+  $ _mmfs find '2009' /media/big/my
   /media/big/my/album/photo01.jpg
   /media/big/my/album/photo02.jpg
   ...
@@ -355,7 +355,7 @@ Search for files by tag using `_mmfs query' (rmtimequery):
   2009 nature Europe :: /media/big/my/album/photo02.jpg
   ...
 
-You specify a cunjunction (``and'') of case insensitive tags in the
+You specify a conjunction (``and'') of case insensitive tags in the
 `_mmfs query' command line, and `_mmfs query' lists very quickly all files
 (and all associated tags) having _all_ the specified tags in their
 user.mmfs.tags extended attribute.  The files are listed in no particular
