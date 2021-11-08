@@ -190,7 +190,7 @@ Download https://github.com/pts/ppfiletagger/archive/master.zip , extract
 it, and cd into the ppfiletagger-master directory:
 
   $ wget -nv -O ppfiletagger-master.zip https://github.com/pts/ppfiletagger/archive/master.zip
-  $ tar xzf ppfiletagger-master.zip
+  $ unzip xzf ppfiletagger-master.zip
   $ cd ppfiletagger-master
 
 Use ppfiletagger_shell_functions.sh (`_mmfs tag') to add and remove tags:
