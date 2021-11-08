@@ -2,7 +2,7 @@ ppfiletagger: file tagging and search by tag for Unix
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ppfiletagger lets you tag your files and then search for filenames matching
 the tags you specify. Most functionality (tagging, search and full index
-building) is implemented as Perl and Python scripts which run Linux, macOS,
+building) is implemented as Perl and Python 2.x scripts which run Linux, macOS,
 FreeBSD, NetBSD and Solaris. A filesystem which supports extended attributes
 (xattr) is needed, because tags are stored there. Slow search (mature) works
 by doing a recursive file and directory scan, reading and comparing extended
@@ -46,11 +46,16 @@ Fast search (building the full index (rmtimescan) and doing fast searches
   5.9.12.). It may also work on macOS: Mac OS X 10.5 or later, but it is
   not tested.
 * Python 2.4, 2.5, 2.6 or 2.7. Python 3.x won't work.
-  * To run ppfiletagger on a modern Linux system, just run it.
-    That's because the system will typically have Python 2.7. Python 2.5, 2.6
-    and 2.7 contain the ctypes module (for reading extended attributes),
-    and they contain the sqlite3 module (for writing and querying SQLite
-    database files).
+  * To run ppfiletagger on a Linux system released before 2020, just run it.
+    That's because the system will typically have Python 2.7. On a more
+    modern Linux system (released since 2020), you may have to install a
+    package named like python2.7, e.g. on Debian or Ubuntu, run
+    `sudo apt-get install python2.7'. Fast search doesn't work with Python
+    3.x, but it works if both Python 2.x and 3.x are installed (and uses
+    the former).
+  * Python 2.5, 2.6 and 2.7 contain the ctypes module (for reading extended
+    attributes), and they contain the sqlite3 module (for writing and
+    querying SQLite database files).
   * To run ppfiletagger on an old Linux i386 or amd64 system with Python 2.4,
     it is recommended to use the precompiled Python package dependencies
     (pyxattr and pysqlite). Download
@@ -258,17 +263,18 @@ Use <F2> <S> to show tags of the current file or of the selected files.
 Fast search with rmtimescan and rmtimequery
 """""""""""""""""""""""""""""""""""""""""""
 For fast search, use rmtimescan (see below how) to build or rebuild a search
-index (database), and use `_mmfs query <tagquery>` (invokes rmtimequery) to
-run the search using the index (typically finishes faster than 1 second).
+index (database), and use `_mmfs query <tagquery>` (invokes rmtimequery, may
+take several minutes or hours depending on the number of files) to run the
+search using the index (typically finishes faster than 1 second).
 
-On modern Linux systems, fast search won't work, because the rmtimescan and
-`_mmfs query' commands have some Python 2.x dependencies (an old bundled pyxattr
-package and an old bundled pysqlite2 package). On very modern systems
-(released in 2020 or later), Python 2.x may not even be available anymore.
+Fast search needs Python 2.x and some Python packages installed. Some
+systems have them already, you'll get some instructions below.
+instructions below.
 
-Create new Linux user `rmtimescan' whose UID rmtimscan.py will use for
+Create new user `rmtimescan' whose UID rmtimscan.py will use for
 scanning all filesystems and building the index of files with extended
-attributes.
+attributes. (On Debian and Ubuntu you can do this by running
+`sudo adduser rmtimescan'.)
 
 Make sure that your media filesystems are consistent with your system clock,
 i.e no directories have an mtime larger than the current system time. If you
@@ -288,6 +294,19 @@ The presence of the tags.sqlite files tells the ppfiletagger tools that
 there is an extended attribute index for that filesystem. The file
 tags.sqlite contains the index as an SQLite database with a few tables and
 an FTS3 full text index for the tags.
+
+Check that fast search is properly installed by running:
+
+  $ ./rmtimequery --check
+
+If it prints a line ending with `OK.', then it's properly installed, and
+skip this paragraph. Otherwise you may have to install additional software,
+typically Python 2.x or some Python depenencies. On a recent Debian or
+Ubuntu, installation may be as easy as running `sudo apt-get install
+python2.7' (run it and try again). Other Linux and Unix systems may also
+have a package with a name like python2.7, install that with the package
+manager. Fast search doesn't work with Python 3.x, but it works if both
+Python 2.x and 3.x are installed (and uses the former).
 
 Build the index for the first time using:
 
